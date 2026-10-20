@@ -67,7 +67,7 @@ Deno.test("expiry comes from the provider token", () => {
 const cfg: Config = {
   url: "https://example.test",
   publicURL: "https://public.test",
-  anonKey: "publishable",
+  apiKey: "k".repeat(32),
   serviceKey: "secret",
   demoID: id,
   cleanupSecret: "x".repeat(32),
@@ -89,15 +89,50 @@ Deno.test("API rejects requests before any privileged access", async () => {
     )).status === 401,
   );
 });
-Deno.test("authenticated other accounts are forbidden", async () => {
-  const backend = new Backend(cfg, () => Promise.resolve(Response.json({ id: "other" })));
+Deno.test("shared key selects only the configured owner and uses server-scoped listing", async () => {
+  let calls = 0;
+  const backend = new Backend(cfg, (input, init) => {
+    calls++;
+    assert(String(input).endsWith("/rpc/list_demo_items"));
+    assert(JSON.parse(String(init?.body)).p_owner === id);
+    assert(new Headers(init?.headers).get("X-Filey-API-Key") === null);
+    return Promise.resolve(Response.json([]));
+  });
+  const handler = createHandler(backend);
+  for (const key of ["wrong", cfg.apiKey + "x"]) {
+    assert(
+      (await handler(
+        new Request("https://example.test/api/v1/items", {
+          headers: { "X-Filey-API-Key": key },
+        }),
+      )).status === 401,
+    );
+  }
+  assert(calls === 0);
   assert(
-    (await createHandler(backend)(
+    (await handler(
       new Request("https://example.test/api/v1/items", {
-        headers: { Authorization: "Bearer valid" },
+        headers: { "X-Filey-API-Key": cfg.apiKey },
       }),
-    )).status === 403,
+    )).status === 200,
   );
+  assert(Number(calls) === 1);
+});
+Deno.test("ready file reads and downloads explicitly filter pending files", async () => {
+  const backend = new Backend(cfg, (input) => {
+    const path = String(input);
+    assert(path.includes(`owner_id=eq.${id}`) && path.includes("status=eq.ready"));
+    return Promise.resolve(Response.json([]));
+  });
+  for (const suffix of ["", "/download-url"]) {
+    const response = await createHandler(backend)(
+      new Request(
+        `https://example.test/api/v1/files/${id}${suffix}`,
+        { method: suffix ? "POST" : "GET", headers: { "X-Filey-API-Key": cfg.apiKey } },
+      ),
+    );
+    assert(response.status === 404);
+  }
 });
 Deno.test("cleanup rejects user tokens and missing server secret", async () => {
   const backend = new Backend(cfg, () => {
@@ -139,4 +174,29 @@ Deno.test("cleanup failure remains retryable and is not marked cleaned", async (
   assert(response.status === 503 && !marked);
   const result = await response.json();
   assert(result.failed === 1 && result.removed === 0);
+});
+
+Deno.test("upstream stream failures and non-JSON gateways remain retryable", async () => {
+  const responses = [
+    () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(Error("disconnect"));
+          },
+        }),
+      ),
+    () => new Response("<html>Unavailable</html>", { status: 502 }),
+    () => new Response("<html>Slow down</html>", { status: 429 }),
+  ];
+  for (const [index, response] of responses.entries()) {
+    const backend = new Backend(cfg, () => Promise.resolve(response()));
+    try {
+      await backend.request("/rest/v1/files", "GET");
+      throw Error("Expected upstream error");
+    } catch (error) {
+      assert(error instanceof ApiError && error.retryable);
+      assert(error.status === (index === 2 ? 429 : 503));
+    }
+  }
 });

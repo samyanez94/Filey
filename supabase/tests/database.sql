@@ -42,4 +42,24 @@ begin
     raise exception 'cleanup reissued leased entries';
   end if;
 end $$;
+do $$
+declare owner uuid := gen_random_uuid(); other uuid := gen_random_uuid(); folder uuid; listing jsonb;
+begin
+  insert into auth.users(id) values(owner),(other);
+  insert into public.folders(owner_id,name) values(owner,'Owned') returning id into folder;
+  insert into public.folders(owner_id,name) values(other,'Other');
+  insert into public.files(id,owner_id,name,content_type,byte_count,status)
+    values(gen_random_uuid(),owner,'Pending','application/pdf',1,'pending'),(gen_random_uuid(),owner,'Ready','application/pdf',1,'ready');
+  listing := public.list_demo_items(owner);
+  if jsonb_array_length(listing) <> 2 then raise exception 'listing leaked other owners or pending files'; end if;
+  begin
+    perform public.list_demo_items(other,folder);
+    raise exception 'cross-owner listing accepted';
+  exception when raise_exception then if sqlerrm <> 'not_found' then raise; end if; end;
+  if has_table_privilege('authenticated','public.files','SELECT') or has_table_privilege('anon','public.folders','SELECT') then
+    raise exception 'direct reads permitted'; end if;
+  if has_function_privilege('authenticated','public.list_demo_items(uuid,uuid,integer,integer,text,uuid)','execute') or
+     has_function_privilege('authenticated','public.list_items(uuid,integer,integer,text,uuid)','execute') then
+    raise exception 'client listing RPC permitted'; end if;
+end $$;
 rollback;

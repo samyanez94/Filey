@@ -88,7 +88,7 @@ export function createHandler(backend: Backend) {
     let response: Response;
     let route = "unknown";
     try {
-      const { id: owner, token } = await backend.authenticate(req);
+      const { id: owner } = await backend.authenticate(req);
       const url = new URL(req.url);
       const match = url.pathname.match(/^(?:\/functions\/v1)?\/api\/v1(\/.*)?$/);
       if (!match) throw new ApiError(404, "not_found");
@@ -103,13 +103,14 @@ export function createHandler(backend: Backend) {
         }
         const limit = +rawLimit;
         const cursor = decodeCursor(url.searchParams.get("cursor"), folder);
-        const rows = await backend.rpc<Item[]>("list_items", {
+        const rows = await backend.rpc<Item[]>("list_demo_items", {
+          p_owner: owner,
           p_parent: folder,
           p_limit: limit,
           p_kind: cursor?.kind ?? null,
           p_name: cursor?.name ?? null,
           p_id: cursor?.id ?? null,
-        }, token);
+        });
         const page = rows.slice(0, limit);
         const last = page.at(-1);
         response = json({
@@ -134,9 +135,10 @@ export function createHandler(backend: Backend) {
         });
         response = json(publicItem(result.folder, "folder"), result.created ? 201 : 200);
       } else if (
-        parts.length === 2 && ["folders", "files"].includes(parts[0]) && req.method === "GET"
+        parts.length === 2 && (parts[0] === "folders" || parts[0] === "files") &&
+        req.method === "GET"
       ) {
-        const item = await backend.one<Item>(parts[0], uuid(parts[1]), owner, token);
+        const item = await backend.one<Item>(parts[0], uuid(parts[1]), owner, parts[0] === "files");
         response = json(publicItem(item, parts[0] === "files" ? "file" : "folder"));
       } else if (parts[0] === "uploads" && parts.length === 2 && req.method === "PUT") {
         const id = uuid(parts[1]);
@@ -172,7 +174,7 @@ export function createHandler(backend: Backend) {
         parts[0] === "files" && parts.length === 3 && parts[2] === "download-url" &&
         req.method === "POST"
       ) {
-        const item = await backend.one<Upload>("files", uuid(parts[1]), owner, token);
+        const item = await backend.one<Upload>("files", uuid(parts[1]), owner, true);
         response = json({
           ...await backend.downloadTarget(item.storage_key),
           content_type: item.content_type,

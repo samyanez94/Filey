@@ -1,4 +1,4 @@
-import { api, call, env, login } from "./common.ts";
+import { api, call, env } from "./common.ts";
 
 // Account provisioning is separate so functions can be restarted with the resulting demo UUID.
 if (Deno.args.includes("--account")) {
@@ -11,21 +11,17 @@ if (Deno.args.includes("--account")) {
   if (!user) {
     user = await call("/auth/v1/admin/users", "POST", {
       email: env("DEMO_EMAIL"),
-      password: env("DEMO_PASSWORD"),
+      password: crypto.randomUUID() + crypto.randomUUID(),
       email_confirm: true,
     });
   }
   console.log(`Demo account ID: ${user!.id}`);
   console.log("Set DEMO_USER_ID in .env.local and the Edge Function environment to this ID.");
 } else {
-  const { access_token: token, user } = await login();
-  if (user.id !== env("DEMO_USER_ID")) {
-    throw Error("Configured demo ID does not match credentials.");
-  }
-  const folder = await api("/folders", "POST", token, { parent_id: null, name: "Sample Files" }, {
+  const folder = await api("/folders", "POST", { parent_id: null, name: "Sample Files" }, {
     "Idempotency-Key": "10000000-0000-4000-8000-000000000001",
   });
-  const nested = await api("/folders", "POST", token, {
+  const nested = await api("/folders", "POST", {
     parent_id: folder.id,
     name: "Interview Notes",
   }, { "Idempotency-Key": "10000000-0000-4000-8000-000000000002" });
@@ -73,7 +69,7 @@ if (Deno.args.includes("--account")) {
     },
   ];
   for (const f of fixtures) {
-    const upload = await api(`/uploads/${f.id}`, "PUT", token, {
+    const upload = await api(`/uploads/${f.id}`, "PUT", {
       parent_id: f.parent_id,
       name: f.name,
       content_type: f.type,
@@ -90,7 +86,7 @@ if (Deno.args.includes("--account")) {
     await response.body?.cancel();
     // Completion also recovers a previously uploaded object when seed is rerun.
     try {
-      await api(`/uploads/${f.id}/complete`, "POST", token);
+      await api(`/uploads/${f.id}/complete`, "POST");
     } catch (e) {
       if (!ok) throw Error("Seed upload failed; inspect server state before retrying.");
       throw e;

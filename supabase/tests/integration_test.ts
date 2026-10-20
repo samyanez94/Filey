@@ -1,5 +1,5 @@
 // Runs against a disposable, running local Supabase stack. No production target allowed.
-import { api, apiOrigin, call, env, keyHeaders, login, origin } from "../../scripts/common.ts";
+import { api, apiOrigin, call, env, keyHeaders, origin } from "../../scripts/common.ts";
 function assert(value: unknown, message = "Assertion failed"): asserts value {
   if (!value) throw Error(message);
 }
@@ -15,10 +15,9 @@ Deno.test({
       ["127.0.0.1", "localhost"].includes(new URL(apiOrigin()).hostname),
       "Integration functions must also be local",
     );
-    const { access_token: token, user } = await login();
-    assert(user.id === env("DEMO_USER_ID"));
+    const user = { id: env("DEMO_USER_ID") };
     const base = "/functions/v1/api/v1";
-    const headers = { ...keyHeaders(env("SUPABASE_ANON_KEY")), Authorization: `Bearer ${token}` };
+    const headers = { "Content-Type": "application/json", "X-Filey-API-Key": env("FILEY_API_KEY") };
     const folderIDs: string[] = [], fileIDs: string[] = [];
     const prefix = `Test-${crypto.randomUUID()}`;
     async function request(
@@ -66,7 +65,7 @@ Deno.test({
         assert(unauth.status === 401);
         await unauth.body?.cancel();
         const invalid = await request("/items", "GET", undefined, {
-          Authorization: "Bearer invalid",
+          "X-Filey-API-Key": "invalid",
         });
         assert(invalid.status === 401);
         const other = await call("/auth/v1/admin/users", "POST", {
@@ -82,10 +81,29 @@ Deno.test({
           });
           const otherSession = await loginRes.json();
           assert(loginRes.ok);
+          for (
+            const path of [
+              "/rest/v1/folders?select=id",
+              "/rest/v1/files?select=id",
+              "/rest/v1/rpc/list_demo_items",
+            ]
+          ) {
+            const res = await fetch(origin() + path, {
+              method: path.includes("rpc") ? "POST" : "GET",
+              headers: {
+                ...keyHeaders(env("SUPABASE_ANON_KEY")),
+                Authorization: `Bearer ${otherSession.access_token}`,
+              },
+              body: path.includes("rpc") ? JSON.stringify({ p_owner: user.id }) : undefined,
+            });
+            assert(!res.ok, "Authenticated clients must not read application data directly");
+            await res.body?.cancel();
+          }
           assert(
             (await request("/items", "GET", undefined, {
+              "X-Filey-API-Key": "",
               Authorization: `Bearer ${otherSession.access_token}`,
-            })).status === 403,
+            })).status === 401,
           );
         } finally {
           await call(`/auth/v1/admin/users/${other.id}`, "DELETE");
@@ -151,7 +169,7 @@ Deno.test({
         ) {
           const res = await fetch(origin() + path, {
             method: "POST",
-            headers,
+            headers: { ...headers, ...keyHeaders(env("SUPABASE_ANON_KEY")) },
             body: JSON.stringify(body),
           });
           assert(!res.ok);
@@ -159,7 +177,11 @@ Deno.test({
         }
         const res = await fetch(origin() + `/storage/v1/object/files/${user.id}/bypass`, {
           method: "POST",
-          headers: { ...headers, "Content-Type": "application/pdf" },
+          headers: {
+            ...headers,
+            ...keyHeaders(env("SUPABASE_ANON_KEY")),
+            "Content-Type": "application/pdf",
+          },
           body: "bad",
         });
         assert(!res.ok);
@@ -219,7 +241,7 @@ Deno.test({
             (await request(`/uploads/${upload.id}`, "DELETE")).body.error.code ===
               "already_completed",
           );
-          const signed = await api(`/files/${upload.id}/download-url`, "POST", token);
+          const signed = await api(`/files/${upload.id}/download-url`, "POST");
           const download = await fetch(signed.url);
           assert(download.ok && await download.text() === "%PDF-1.4\n");
           assert(Date.parse(signed.expires_at) - Date.now() <= 900_000);
@@ -279,7 +301,7 @@ Deno.test({
       await t.step("late uploads and cleanup retries never publish cancelled files", async () => {
         const upload = await begin();
         assert((await request(`/uploads/${upload.id}`, "DELETE")).status === 204);
-        assert((await request(`/uploads/${upload.id}`, "DELETE")).status === 204);
+        assert(await api(`/uploads/${upload.id}`, "DELETE") === null);
         await send(upload.upload_target);
         assert((await request(`/uploads/${upload.id}/complete`, "POST")).status === 409);
         // Advance cleanup eligibility with the operator role to avoid a multi-hour wait.

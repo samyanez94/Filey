@@ -4,7 +4,7 @@ Status: planned. Updated October 20, 2026.
 
 ## Goal and scope
 
-Build a SwiftUI file-browser client for practicing iOS coding and system design interviews. Users automatically authenticate as the dedicated demo account, browse nested folders, create folders, import photos or PDFs, upload files with progress, preview files, and download files for offline access or export.
+Build a SwiftUI file-browser client for practicing iOS coding and system design interviews. Users access one shared demo workspace with a configured API key, browse nested folders, create folders, import photos or PDFs, upload files with progress, preview files, and download files for offline access or export.
 
 All installations share the demo account's remote content. The deployed backend supports this MVP without initial backend changes. Sharing, multi-user UI, rename/move, remote deletion, search, batch import, full offline synchronization, background transfers, and byte-range resumable transfers are outside the initial scope.
 
@@ -16,30 +16,28 @@ Use feature-based folders, SwiftUI navigation, observable screen models, and a s
 
 | Component | Responsibility |
 | --- | --- |
-| `SessionManager` | Restore the demo session, sign in, coordinate token refresh |
 | `FileyAPIClient` | Typed HTTP requests, response decoding, application errors |
 | `TransferManager` | Upload/download progress, cancellation, retry, recovery |
 | `LocalFileStore` | Staged imports, transfer manifests, preview cache, saved downloads |
 | Feature models | Screen state and user actions |
 
-Views and observable screen models run on the main actor. Services own networking and file operations; views do not call Supabase directly. Isolate shared mutable transfer/session state and keep blocking file operations off the main actor. Inject service dependencies to support previews and deterministic tests.
+Views and observable screen models run on the main actor. Services own networking and file operations; views do not call Supabase directly. Isolate shared mutable transfer state and keep blocking file operations off the main actor. Inject service dependencies to support previews and deterministic tests.
 
-Proposed feature areas are app startup, authentication, folder browsing, imports/transfers, and file preview/downloads. Place shared transport and storage infrastructure outside feature UI folders.
+Proposed feature areas are app startup, configuration, folder browsing, imports/transfers, and file preview/downloads. Place shared transport and storage infrastructure outside feature UI folders.
 
-Recommended dependency: use the Supabase Swift SDK for authentication only, subject to approval before adding the dependency. Custom Filey API calls and file transfers use `URLSession` so their behavior remains explicit for interview practice. Configure Keychain-backed session persistence rather than assuming the SDK's default storage meets that requirement.
+Use Foundation `URLSession` for both Filey API calls and signed file transfers. No Supabase Swift SDK, login screen, session persistence, access token, or refresh-token handling is required.
 
-## Milestone 1: foundation and authentication
+## Milestone 1: foundation and API access
 
 - Establish the app composition root, configuration, injected services, and typed API models.
-- Keep local and hosted configuration separate. Only the project URL, public key, and dedicated demo credentials belong in client configuration; never include service-role or cleanup secrets.
-- Restore a persisted session; otherwise sign in to the dedicated demo account without a login form.
-- Store session credentials in Keychain. Demo credentials shipped in the app remain extractable and are suitable only for this shared sample account.
-- Coordinate concurrent refresh requests so they share one refresh operation.
-- On an API `401`, refresh and retry once. If the session cannot be recovered, attempt the demo sign-in through the coordinated session flow; avoid retry loops.
-- Present startup loading and an actionable retry state when authentication is unavailable.
+- Configure the application API base URL and `FileyAPIKey` in a Git-ignored local configuration file. Use the backend's `FILEY_API_KEY` value for that environment. For hosted development, copy only `FILEY_API_KEY` from `.env.hosted` and derive the API base URL by appending `/functions/v1/api/v1` to `SUPABASE_URL`. The remaining variables are operator-only; do not bundle `.env.hosted` with the app.
+- Add `X-Filey-API-Key` to every application API request. Do not send it to signed Storage URLs or arbitrary hosts.
+- Never include Supabase service-role keys, cleanup secrets, or demo account passwords in the app. A Supabase public key is not needed for the application routes.
+- A shared key shipped in the app is extractable and grants access to disposable demo content; it is not individual user authentication.
+- On `401`, show a configuration/access error. Do not attempt token refresh or repeatedly retry the same invalid key. After rotation, update the local app key and rebuild.
 - Decode snake_case responses and handle application errors as well as non-JSON gateway failures.
 
-Acceptance: launch the app, authenticate automatically, and retrieve the seeded root listing. Relaunch restores the session, and concurrent expired-token requests do not cause competing refreshes.
+Acceptance: launch the app and retrieve the seeded root listing using only the shared API key. Missing or incorrect keys produce a recoverable access-error screen; no session bootstrap is involved.
 
 ## Milestone 2: folder browsing and creation
 
@@ -103,7 +101,7 @@ Acceptance: seeded and newly uploaded photos/PDFs preview successfully, export t
 
 Use injected services and mocked HTTP responses for deterministic tests. Focus on meaningful failure modes:
 
-- Session restoration and simultaneous token refresh.
+- Shared-key header injection, missing/invalid-key handling, and ensuring credentials are not sent to signed Storage URLs.
 - Pagination, duplicate results, and stale navigation responses.
 - Folder creation retries without duplicate resources.
 - Upload interruptions before and after bytes reach Storage.
@@ -138,15 +136,13 @@ The [OpenAPI specification](openapi.yaml) is the detailed HTTP contract. The [Ba
 | Cancel upload | `DELETE /uploads/{id}` |
 | Request download URL | `POST /files/{id}/download-url` |
 
-Authenticated application requests include `Authorization: Bearer <user-access-token>` and `apikey: <public-key>`. JSON requests include `Content-Type: application/json`. Signed Storage requests use the supplied URL and transfer headers without attaching the application session token. File bytes bypass the application API.
+Application requests include `X-Filey-API-Key: <shared-demo-key>`. JSON requests include `Content-Type: application/json`. Signed Storage requests use only the supplied URL and transfer headers, without the Filey key. File bytes bypass the application API.
 
-Supabase Auth provides password sign-in at `/auth/v1/token?grant_type=password` and refresh at `/auth/v1/token?grant_type=refresh_token`, relative to the hosted origin. The proposed SDK integration owns these calls and session handling.
-
-The client never calls the server-only cleanup function or writes application tables directly. Public signup is disabled. Backend errors include a machine-readable code, retryability, and request ID; gateway failures may have a different body.
+The backend validates the key and selects `DEMO_USER_ID` itself; callers cannot select an owner. The client never calls Supabase Auth, the server-only cleanup function, or application tables directly. Public signup and direct anonymous/authenticated table access are disabled. Backend errors include a machine-readable code, retryability, and request ID; gateway failures may have a different body.
 
 ## Implementation order
 
-1. Launch → demo authentication → browse seeded folders.
+1. Launch → configured API client → browse seeded folders.
 2. Folder navigation, pagination, and creation.
 3. Import → signed upload → finalization, with transfer progress.
 4. Signed download → local preview → persistent download/export.
@@ -156,7 +152,5 @@ Each milestone should produce an independently testable increment. No client imp
 
 ## Platform references
 
-- [Supabase Swift SDK](https://github.com/supabase/supabase-swift)
-- [Supabase session refresh](https://supabase.com/docs/reference/swift/auth-refreshsession)
 - [SwiftUI file importer](https://developer.apple.com/documentation/swiftui/view/fileimporter(ispresented:allowedcontenttypes:oncompletion:))
 - [URLSession file-backed uploads](https://developer.apple.com/documentation/foundation/urlsession/upload(for:fromfile:))

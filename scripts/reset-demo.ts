@@ -34,4 +34,4 @@ while (true) {
 await call(`/rest/v1/idempotency_requests?owner_id=eq.${owner}`, "DELETE");
 // A single statement removes the hierarchy without violating parent references.
 await call(`/rest/v1/folders?owner_id=eq.${owner}`, "DELETE");
-console.log("Removed demo content. Demo authentication account was preserved.");
+console.log("Removed demo content. Demo owner record was preserved.");

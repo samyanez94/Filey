@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Filey API
-  version: 1.0.0
-  description: Shared demo workspace. Supabase Auth is external to this API. File bytes use signed Storage URLs.
+  version: 1.1.0
+  description: Shared demo workspace. Requests use a shared X-Filey-API-Key; no client Auth session is needed. File bytes use signed Storage URLs.
 servers:
   - url: http://127.0.0.1:56321/functions/v1/api/v1
     description: Local development
@@ -11,8 +11,7 @@ servers:
       project:
         default: your-project-ref
 security:
-  - userJWT: []
-    publishableKey: []
+  - fileyAPIKey: []
 paths:
   /items:
     get:
@@ -169,14 +168,10 @@ paths:
         default: {$ref: '#/components/responses/Error'}
 components:
   securitySchemes:
-    userJWT:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-    publishableKey:
+    fileyAPIKey:
       type: apiKey
       in: header
-      name: apikey
+      name: X-Filey-API-Key
   parameters:
     FileID:
       name: fileID
@@ -185,7 +180,7 @@ components:
       schema: {type: string, format: uuid}
   responses:
     Error:
-      description: Application errors use 400, 401, 403, 404, 409, 413, 415, 422, 429, 500 or 503. Gateway failures may not be JSON.
+      description: Application errors use 400, 401, 404, 409, 413, 415, 422, 429, 500 or 503. Gateway failures may not be JSON.
       headers:
         X-Request-ID:
           schema: {type: string, format: uuid}
@@ -205,7 +200,7 @@ components:
                 properties:
                   code:
                     type: string
-                    enum: [invalid_request, invalid_name, invalid_cursor, unauthenticated, forbidden, not_found, idempotency_conflict, upload_conflict, upload_incomplete, already_completed, upload_cancelled, upload_expired, file_too_large, request_too_large, unsupported_type, upload_validation_failed, rate_limited, internal_error, temporarily_unavailable]
+                    enum: [invalid_request, invalid_name, invalid_cursor, unauthenticated, not_found, idempotency_conflict, upload_conflict, upload_incomplete, already_completed, upload_cancelled, upload_expired, file_too_large, request_too_large, unsupported_type, upload_validation_failed, rate_limited, internal_error, temporarily_unavailable]
                   message: {type: string}
                   retryable: {type: boolean}
   schemas:

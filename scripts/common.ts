@@ -1,6 +1,6 @@
 export function env(key: string): string {
   const value = Deno.env.get(key);
-  if (!value) throw Error(`Missing ${key}; load .env.local first.`);
+  if (!value) throw Error(`Missing ${key}; load the appropriate env file first.`);
   return value;
 }
 export const apiOrigin = () => (Deno.env.get("FUNCTIONS_ORIGIN") || origin()).replace(/\/$/, "");
@@ -12,16 +12,11 @@ export function keyHeaders(key: string): Record<string, string> {
     ...(key.startsWith("eyJ") ? { Authorization: `Bearer ${key}` } : {}),
   };
 }
-export async function call(path: string, method = "GET", body?: unknown, token?: string) {
-  const headers = token
-    ? {
-      apikey: env("SUPABASE_ANON_KEY"),
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    }
-    : keyHeaders(env("SUPABASE_SERVICE_ROLE_KEY"));
+export async function call(path: string, method = "GET", body?: unknown) {
+  const headers = keyHeaders(env("SUPABASE_SERVICE_ROLE_KEY"));
   const response = await fetch(origin() + path, {
     method,
+    signal: AbortSignal.timeout(30_000),
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -29,37 +24,33 @@ export async function call(path: string, method = "GET", body?: unknown, token?:
   if (!response.ok) throw Error(`${method} ${path.split("?")[0]} failed (${response.status})`);
   return text ? JSON.parse(text) : null;
 }
-export async function login() {
-  const response = await fetch(origin() + "/auth/v1/token?grant_type=password", {
-    method: "POST",
-    headers: keyHeaders(env("SUPABASE_ANON_KEY")),
-    body: JSON.stringify({ email: env("DEMO_EMAIL"), password: env("DEMO_PASSWORD") }),
-  });
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw Error(`Demo sign-in failed (${response.status})`);
-  }
-  return await response.json();
-}
 export async function api(
   path: string,
   method: string,
-  token: string,
   body?: unknown,
   extra: Record<string, string> = {},
 ) {
   const response = await fetch(apiOrigin() + "/functions/v1/api/v1" + path, {
     method,
+    signal: AbortSignal.timeout(30_000),
     headers: {
-      ...keyHeaders(env("SUPABASE_ANON_KEY")),
-      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "X-Filey-API-Key": env("FILEY_API_KEY"),
       ...extra,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data = await response.json();
+  const text = await response.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    throw Error(`API ${method} ${path.split("?")[0]} returned non-JSON (${response.status})`);
+  }
   if (!response.ok) {
-    throw Error(`API ${method} ${path} failed: ${data.error?.code ?? response.status}`);
+    throw Error(
+      `API ${method} ${path.split("?")[0]} failed: ${data?.error?.code ?? response.status}`,
+    );
   }
   return data;
 }

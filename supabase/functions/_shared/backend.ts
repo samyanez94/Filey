@@ -2,7 +2,7 @@ import { ApiError, tokenExpiry } from "./core.ts";
 export interface Config {
   url: string;
   publicURL: string;
-  anonKey: string;
+  apiKey: string;
   serviceKey: string;
   demoID: string;
   cleanupSecret: string;
@@ -17,7 +17,7 @@ export function config(): Config {
   return {
     url,
     publicURL: (Deno.env.get("PUBLIC_SUPABASE_URL") || url).replace(/\/$/, ""),
-    anonKey: required("SUPABASE_ANON_KEY"),
+    apiKey: required("FILEY_API_KEY"),
     serviceKey: required("SUPABASE_SERVICE_ROLE_KEY"),
     demoID: required("DEMO_USER_ID"),
     cleanupSecret: Deno.env.get("CLEANUP_SECRET") || "",
@@ -34,12 +34,13 @@ const domainCodes: Record<string, number> = {
 };
 export class Backend {
   constructor(public cfg: Config, private transport: typeof fetch = fetch) {}
-  async request<T>(path: string, method: string, data?: unknown, token?: string): Promise<T> {
-    const key = token ? this.cfg.anonKey : this.cfg.serviceKey;
+  async request<T>(path: string, method: string, data?: unknown): Promise<T> {
+    const key = this.cfg.serviceKey;
     const headers: Record<string, string> = { apikey: key, "Content-Type": "application/json" };
     // Modern secret keys are API keys, not JWTs. Legacy local keys remain valid bearer JWTs.
-    if (token || key.startsWith("eyJ")) headers.Authorization = `Bearer ${token || key}`;
+    if (key.startsWith("eyJ")) headers.Authorization = `Bearer ${key}`;
     let response: Response;
+    let text: string;
     try {
       response = await this.transport(this.cfg.url + path, {
         method,
@@ -47,6 +48,7 @@ export class Backend {
         body: data === undefined ? undefined : JSON.stringify(data),
         signal: AbortSignal.timeout(30_000),
       });
+      text = await response.text();
     } catch {
       throw new ApiError(
         503,
@@ -55,7 +57,8 @@ export class Backend {
         true,
       );
     }
-    const text = await response.text();
+    // Gateways can throttle with an HTML or empty body.
+    if (response.status === 429) throw new ApiError(429, "rate_limited", undefined, true);
     let result;
     try {
       result = text ? JSON.parse(text) : null;
@@ -77,7 +80,6 @@ export class Backend {
       if (["23514", "23502", "22P02"].includes(result?.code)) {
         throw new ApiError(400, "invalid_request");
       }
-      if (response.status === 429) throw new ApiError(429, "rate_limited", undefined, true);
       if (response.status === 404 || result?.code === "NoSuchKey" || result?.statusCode === "404") {
         throw new ApiError(404, "not_found");
       }
@@ -85,42 +87,34 @@ export class Backend {
     }
     return result as T;
   }
-  async authenticate(req: Request): Promise<{ id: string; token: string }> {
-    const header = req.headers.get("authorization");
-    if (!header?.startsWith("Bearer ") || header.length < 8) {
-      throw new ApiError(401, "unauthenticated");
-    }
-    const token = header.slice(7);
-    let response: Response;
-    try {
-      response = await this.transport(`${this.cfg.url}/auth/v1/user`, {
-        headers: { apikey: this.cfg.anonKey, Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(10_000),
-      });
-    } catch {
-      throw new ApiError(503, "temporarily_unavailable", undefined, true);
-    }
-    if (!response.ok) {
-      await response.body?.cancel();
-      if (response.status === 429) throw new ApiError(429, "rate_limited", undefined, true);
-      if (response.status >= 500) {
-        throw new ApiError(503, "temporarily_unavailable", undefined, true);
-      }
-      throw new ApiError(401, "unauthenticated");
-    }
-    const user = await response.json();
-    if (user.id !== this.cfg.demoID) throw new ApiError(403, "forbidden");
-    return { id: user.id, token };
+  async authenticate(req: Request): Promise<{ id: string }> {
+    const supplied = req.headers.get("X-Filey-API-Key") || "";
+    if (this.cfg.apiKey.length < 32 || !supplied) throw new ApiError(401, "unauthenticated");
+    // Compare fixed-length digests; never log either credential.
+    const digest = async (value: string) =>
+      new Uint8Array(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
+      );
+    const [expected, actual] = await Promise.all([digest(this.cfg.apiKey), digest(supplied)]);
+    let difference = 0;
+    for (let i = 0; i < expected.length; i++) difference |= expected[i] ^ actual[i];
+    if (difference !== 0) throw new ApiError(401, "unauthenticated");
+    return { id: this.cfg.demoID };
   }
-  rpc<T>(name: string, data: unknown, token?: string) {
-    return this.request<T>(`/rest/v1/rpc/${name}`, "POST", data, token);
+  rpc<T>(name: string, data: unknown) {
+    return this.request<T>(`/rest/v1/rpc/${name}`, "POST", data);
   }
-  async one<T>(table: string, id: string, owner: string, token?: string): Promise<T> {
+  async one<T>(
+    table: "files" | "folders",
+    id: string,
+    owner: string,
+    readyOnly = false,
+  ): Promise<T> {
     const rows = await this.request<T[]>(
-      `/rest/v1/${table}?id=eq.${id}&owner_id=eq.${owner}&select=*`,
+      `/rest/v1/${table}?id=eq.${id}&owner_id=eq.${owner}&select=*${
+        readyOnly ? "&status=eq.ready" : ""
+      }`,
       "GET",
-      undefined,
-      token,
     );
     if (!rows.length) throw new ApiError(404, "not_found");
     return rows[0];
