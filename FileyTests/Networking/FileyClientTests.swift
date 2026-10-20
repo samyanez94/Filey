@@ -10,6 +10,7 @@ struct FileyClientTests {
 			handler: { request in
 				#expect(request.url?.path == "/functions/v1/api/v1/items")
 				#expect(request.httpMethod == "GET")
+				#expect(request.url?.query == nil)
 				#expect(request.value(forHTTPHeaderField: "X-Filey-API-Key") == "test-key")
 				#expect(request.value(forHTTPHeaderField: "Authorization") == nil)
 				return try Self.response(
@@ -23,7 +24,7 @@ struct FileyClientTests {
 				)
 			},
 			test: { client in
-				let page = try await client.getItems()
+				let page = try await client.getItems(parentID: nil)
 				#expect(page.items.count == 2)
 				let folder = try #require(page.items.first)
 				#expect(folder.id.uuidString.lowercased() == "10000000-0000-4000-8000-000000000001")
@@ -39,13 +40,28 @@ struct FileyClientTests {
 		)
 	}
 
+	@Test func nestedFolderIncludesParentID() async throws {
+		let folderID = UUID()
+		try await withClient(
+			handler: { request in
+				let url = try #require(request.url)
+				let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+				#expect(components.queryItems == [URLQueryItem(name: "parent_id", value: folderID.uuidString)])
+				return try Self.response(request, body: #"{"items":[],"next_cursor":null}"#)
+			},
+			test: { client in
+				_ = try await client.getItems(parentID: folderID)
+			}
+		)
+	}
+
 	@Test func emptyPageDecodes() async throws {
 		try await withClient(
 			handler: {
-                try Self.response($0, body: #"{"items":[],"next_cursor":null}"#)
-            },
+				try Self.response($0, body: #"{"items":[],"next_cursor":null}"#)
+			},
 			test: { client in
-				let page = try await client.getItems()
+				let page = try await client.getItems(parentID: nil)
 				#expect(page.items.isEmpty)
 				#expect(page.nextCursor == nil)
 			}
@@ -57,11 +73,11 @@ struct FileyClientTests {
 			handler: { try Self.response($0, status: 401) },
 			test: { client in
 				await #expect {
-					try await client.getItems()
+					try await client.getItems(parentID: nil)
 				} throws: { error in
 					guard case APIError.unauthorized = error else {
-                        return false
-                    }
+						return false
+					}
 					return true
 				}
 			}
@@ -72,20 +88,20 @@ struct FileyClientTests {
 	func serverErrorKeepsStatusAndRequestID(statusCode: Int, requestID: String?) async throws {
 		try await withClient(
 			handler: {
-                try Self.response(
-                    $0,
-                    status: statusCode,
-                    body: "<html>Unavailable</html>",
-                    requestID: requestID
-                )
-            },
+				try Self.response(
+					$0,
+					status: statusCode,
+					body: "<html>Unavailable</html>",
+					requestID: requestID
+				)
+			},
 			test: { client in
 				await #expect {
-					try await client.getItems()
+					try await client.getItems(parentID: nil)
 				} throws: { error in
 					guard case APIError.server(let actualStatus, let actualID) = error else {
-                        return false
-                    }
+						return false
+					}
 					#expect(actualStatus == statusCode)
 					#expect(actualID == requestID)
 					return true
@@ -100,7 +116,7 @@ struct FileyClientTests {
 			handler: { try Self.response($0, body: body) },
 			test: { client in
 				await #expect {
-					try await client.getItems()
+					try await client.getItems(parentID: nil)
 				} throws: { error in
 					guard case APIError.invalidData = error else { return false }
 					return true
@@ -114,22 +130,22 @@ struct FileyClientTests {
 			handler: { request in
 				let url = try #require(request.url)
 				return (
-                    URLResponse(
-                        url: url,
-                        mimeType: nil,
-                        expectedContentLength: 0,
-                        textEncodingName: nil
-                    ),
-                    Data()
-                )
+					URLResponse(
+						url: url,
+						mimeType: nil,
+						expectedContentLength: 0,
+						textEncodingName: nil
+					),
+					Data()
+				)
 			},
 			test: { client in
 				await #expect {
-					try await client.getItems()
+					try await client.getItems(parentID: nil)
 				} throws: { error in
 					guard case APIError.invalidResponse = error else {
-                        return false
-                    }
+						return false
+					}
 					return true
 				}
 			}
@@ -142,7 +158,7 @@ struct FileyClientTests {
 			handler: { _ in throw URLError(code) },
 			test: { client in
 				await #expect {
-					try await client.getItems()
+					try await client.getItems(parentID: nil)
 				} throws: { error in
 					(error as? URLError)?.code == code
 				}
@@ -159,8 +175,8 @@ struct FileyClientTests {
 			test: { client in
 				// This task inherits the main actor, so it cannot start before we cancel it.
 				let task = Task {
-                    try await client.getItems()
-                }
+					try await client.getItems(parentID: nil)
+				}
 				task.cancel()
 				await #expect(throws: CancellationError.self) {
 					try await task.value
@@ -195,13 +211,13 @@ struct FileyClientTests {
 		let url = try #require(request.url)
 		let headers = requestID.map { ["X-Request-ID": $0] } ?? [:]
 		let response = try #require(
-            HTTPURLResponse(
-                url: url,
-                statusCode: status,
-                httpVersion: nil,
-                headerFields: headers
-            )
-        )
+			HTTPURLResponse(
+				url: url,
+				statusCode: status,
+				httpVersion: nil,
+				headerFields: headers
+			)
+		)
 		return (response, Data(body.utf8))
 	}
 }

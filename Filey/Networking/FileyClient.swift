@@ -11,8 +11,8 @@ import Foundation
 @MainActor
 protocol FileyServicing: Sendable {
 
-	/// Loads the first page of the shared root folder.
-	func getItems() async throws -> ItemsPage
+	/// Loads a folder’s first page. Pass nil for the shared root folder.
+	func getItems(parentID: UUID?) async throws -> ItemsPage
 }
 
 /// Talks to the Filey API using our shared key.
@@ -33,21 +33,43 @@ final class FileyClient: FileyServicing {
 		self.session = session
 	}
 
-	/// Loads the first page of the root folder.
+	/// Loads a folder’s first page. Pass nil for the shared root folder.
 	///
 	/// - Returns: The folders and files, plus a cursor if there’s another page.
 	///
 	/// - Throws: An `APIError` if the response isn't usable. Network and cancellation
 	///   errors pass through unchanged.
-	func getItems() async throws -> ItemsPage {
-		let request = makeRequest(path: "items")
+	func getItems(parentID: UUID?) async throws -> ItemsPage {
+		let queryItems =
+			parentID.map {
+				[URLQueryItem(name: "parent_id", value: $0.uuidString)]
+			} ?? []
+		let request = try makeRequest(
+			path: "items",
+			queryItems: queryItems
+		)
 		return try await send(request)
 	}
 
 	/// Adds the route to our base URL and includes the shared key.
-	private func makeRequest(path: String) -> URLRequest {
+	private func makeRequest(
+		path: String,
+		queryItems: [URLQueryItem] = []
+	) throws -> URLRequest {
 		let url = baseURL.appending(path: path)
-		var request = URLRequest(url: url)
+		guard
+			var components = URLComponents(
+				url: url,
+				resolvingAgainstBaseURL: false
+			)
+		else {
+			throw URLError(.badURL)
+		}
+		components.queryItems = queryItems.isEmpty ? nil : queryItems
+		guard let requestURL = components.url else {
+			throw URLError(.badURL)
+		}
+		var request = URLRequest(url: requestURL)
 		request.setValue(apiKey, forHTTPHeaderField: "X-Filey-API-Key")
 		return request
 	}

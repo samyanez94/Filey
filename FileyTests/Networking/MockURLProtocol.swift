@@ -16,12 +16,12 @@ final class MockURLProtocol: URLProtocol {
 	}
 
 	override class func canInit(with request: URLRequest) -> Bool {
-        true
-    }
+		true
+	}
 
 	override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
+		request
+	}
 
 	override func startLoading() {
 		guard let host = request.url?.host,

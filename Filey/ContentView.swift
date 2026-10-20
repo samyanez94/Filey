@@ -5,20 +5,24 @@
 //  Created by Samuel Yanez on 10/20/26.
 //
 
-import Playgrounds
 import SwiftUI
 
 struct ContentView: View {
+
+	let service: any FileyServicing
+
 	var body: some View {
-		Text("Hello, world!")
-			.padding()
+		NavigationStack {
+			FolderView(
+				folder: .root,
+				service: service
+			)
+			.navigationDestination(for: FolderLocation.self) { folder in
+				FolderView(
+					folder: folder,
+					service: service
+				)
+			}
+		}
 	}
-}
-
-#Preview {
-	ContentView()
-}
-
-#Playground {
-	_ = 1 + 2
 }

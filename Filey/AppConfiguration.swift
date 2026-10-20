@@ -18,7 +18,7 @@ enum AppConfiguration {
 		return values["FileyAPIKey"]
 	}()
 
-	static let apiBaseURL = URL(
+	static let baseURL = URL(
 		string: "https://bgcdtyjffxtcrciyfewp.supabase.co/functions/v1/api/v1"
 	)!
 }
