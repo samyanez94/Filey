@@ -6,8 +6,19 @@
 	objectVersion = 90;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		A10000000000000000000009 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000100000000;
+			remoteInfo = Filey;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* Filey.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Filey.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000001 /* FileyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = FileyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +27,20 @@
 			path = Filey;
 			sourceTree = "<group>";
 		};
+		A10000000000000000000002 /* FileyTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = FileyTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		000000000000000130000000 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		A10000000000000000000006 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
 			);
@@ -31,6 +52,7 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000010 /* Filey */,
+				A10000000000000000000002 /* FileyTests */,
 				000000000000000000000020 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -39,6 +61,7 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000120 /* Filey.app */,
+				A10000000000000000000001 /* FileyTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -63,6 +86,27 @@
 			productName = MyApp;
 			productReference = 000000000000000000000120 /* Filey.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A10000000000000000000003 /* FileyTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000004 /* Build configuration list for PBXNativeTarget "FileyTests" */;
+			buildPhases = (
+				A10000000000000000000005 /* Sources */,
+				A10000000000000000000006 /* Frameworks */,
+				A10000000000000000000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A10000000000000000000008 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A10000000000000000000002 /* FileyTests */,
+			);
+			name = FileyTests;
+			productName = FileyTests;
+			productReference = A10000000000000000000001 /* FileyTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -94,12 +138,18 @@
 			projectRoot = "";
 			targets = (
 				000000000000000100000000 /* Filey */,
+				A10000000000000000000003 /* FileyTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		000000000000000140000000 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		A10000000000000000000007 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
 			);
@@ -112,7 +162,20 @@
 			files = (
 			);
 		};
+		A10000000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A10000000000000000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 000000000000000100000000 /* Filey */;
+			targetProxy = A10000000000000000000009 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		000000000000000011000000 /* Debug configuration for PBXProject "Filey" */ = {
@@ -323,6 +386,36 @@
 			};
 			name = Release;
 		};
+		A10000000000000000000010 /* Debug configuration for PBXNativeTarget "FileyTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.filey.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Filey.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Filey";
+			};
+			name = Debug;
+		};
+		A10000000000000000000011 /* Release configuration for PBXNativeTarget "FileyTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.filey.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Filey.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Filey";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -339,6 +432,14 @@
 			buildConfigurations = (
 				000000000000000111000000 /* Debug configuration for PBXNativeTarget "Filey" */,
 				000000000000000112000000 /* Release configuration for PBXNativeTarget "Filey" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		A10000000000000000000004 /* Build configuration list for PBXNativeTarget "FileyTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000010 /* Debug configuration for PBXNativeTarget "FileyTests" */,
+				A10000000000000000000011 /* Release configuration for PBXNativeTarget "FileyTests" */,
 			);
 			defaultConfigurationName = Release;
 		};
