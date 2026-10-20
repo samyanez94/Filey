@@ -1,0 +1,15 @@
+{
+  "tasks": {
+    "check": "deno check supabase/functions/api/index.ts supabase/functions/cleanup-uploads/index.ts scripts/*.ts supabase/tests/*.ts",
+    "test": "deno test supabase/tests/unit_test.ts",
+    "test:integration": "RUN_INTEGRATION=1 deno test --env-file=.env.local --allow-env --allow-net supabase/tests/integration_test.ts",
+    "seed": "deno run --env-file=.env.local --allow-env --allow-net scripts/seed-demo.ts",
+    "reset": "deno run --env-file=.env.local --allow-env --allow-net scripts/reset-demo.ts"
+  },
+  "fmt": {
+    "lineWidth": 100
+  },
+  "compilerOptions": {
+    "strict": true
+  }
+}

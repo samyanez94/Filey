@@ -1,0 +1,272 @@
+openapi: 3.1.0
+info:
+  title: Filey API
+  version: 1.0.0
+  description: Shared demo workspace. Supabase Auth is external to this API. File bytes use signed Storage URLs.
+servers:
+  - url: http://127.0.0.1:56321/functions/v1/api/v1
+    description: Local development
+  - url: https://{project}.supabase.co/functions/v1/api/v1
+    variables:
+      project:
+        default: your-project-ref
+security:
+  - userJWT: []
+    publishableKey: []
+paths:
+  /items:
+    get:
+      operationId: listItems
+      parameters:
+        - name: parent_id
+          in: query
+          schema: {type: string, format: uuid}
+          description: Omit for root.
+        - name: cursor
+          in: query
+          schema: {type: string}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      responses:
+        '200':
+          description: Folders first, then lowercase name and UUID. Pagination is not a snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      oneOf:
+                        - {$ref: '#/components/schemas/Folder'}
+                        - {$ref: '#/components/schemas/File'}
+                  next_cursor: {type: [string, 'null']}
+        default: {$ref: '#/components/responses/Error'}
+  /folders:
+    post:
+      operationId: createFolder
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FolderInput'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Folder'}
+        '200':
+          description: Idempotent replay
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Folder'}
+        default: {$ref: '#/components/responses/Error'}
+  /folders/{folderID}:
+    parameters:
+      - name: folderID
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      operationId: getFolder
+      responses:
+        '200':
+          description: Folder metadata
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Folder'}
+        default: {$ref: '#/components/responses/Error'}
+  /files/{fileID}:
+    parameters:
+      - {$ref: '#/components/parameters/FileID'}
+    get:
+      operationId: getFile
+      responses:
+        '200':
+          description: Ready file metadata; pending files return 404.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/File'}
+        default: {$ref: '#/components/responses/Error'}
+  /uploads/{fileID}:
+    parameters:
+      - {$ref: '#/components/parameters/FileID'}
+    put:
+      operationId: beginUpload
+      description: Reuse the same UUID and metadata for retries. If bytes already exist, the server verifies and finalizes them, returning a ready file or a validation error. Cancelled or expired IDs cannot be reused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UploadInput'}
+      responses:
+        '201':
+          description: Pending upload created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Upload'}
+        '200':
+          description: Existing upload; includes a target if pending, a file if ready.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Upload'}
+        default: {$ref: '#/components/responses/Error'}
+    get:
+      operationId: getUpload
+      responses:
+        '200':
+          description: Upload state; never issues a target.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Upload'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: cancelUpload
+      description: Cancels pending uploads. Repeated cancellation succeeds. Ready files return 409. Existing upload URLs may remain valid until expiry.
+      responses:
+        '204': {description: Cancelled; cleanup is asynchronous}
+        default: {$ref: '#/components/responses/Error'}
+  /uploads/{fileID}/complete:
+    parameters:
+      - {$ref: '#/components/parameters/FileID'}
+    post:
+      operationId: completeUpload
+      description: Verifies stored size and MIME metadata before publishing. Idempotent for ready files.
+      responses:
+        '200':
+          description: Completed file
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/File'}
+        default: {$ref: '#/components/responses/Error'}
+  /files/{fileID}/download-url:
+    parameters:
+      - {$ref: '#/components/parameters/FileID'}
+    post:
+      operationId: createDownloadURL
+      responses:
+        '200':
+          description: Signed GET URL with 15-minute lifetime. Cache-Control is no-store.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, expires_at, content_type, byte_count]
+                properties:
+                  url: {type: string, format: uri}
+                  expires_at: {type: string, format: date-time}
+                  content_type: {$ref: '#/components/schemas/MimeType'}
+                  byte_count: {type: integer, minimum: 1, maximum: 20000000}
+        default: {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    userJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    publishableKey:
+      type: apiKey
+      in: header
+      name: apikey
+  parameters:
+    FileID:
+      name: fileID
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  responses:
+    Error:
+      description: Application errors use 400, 401, 403, 404, 409, 413, 415, 422, 429, 500 or 503. Gateway failures may not be JSON.
+      headers:
+        X-Request-ID:
+          schema: {type: string, format: uuid}
+        Retry-After:
+          description: Present for 429, in seconds.
+          schema: {type: integer}
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error, request_id]
+            properties:
+              request_id: {type: string, format: uuid}
+              error:
+                type: object
+                required: [code, message, retryable]
+                properties:
+                  code:
+                    type: string
+                    enum: [invalid_request, invalid_name, invalid_cursor, unauthenticated, forbidden, not_found, idempotency_conflict, upload_conflict, upload_incomplete, already_completed, upload_cancelled, upload_expired, file_too_large, request_too_large, unsupported_type, upload_validation_failed, rate_limited, internal_error, temporarily_unavailable]
+                  message: {type: string}
+                  retryable: {type: boolean}
+  schemas:
+    MimeType:
+      type: string
+      enum: [image/jpeg, image/png, image/heic, image/heif, application/pdf]
+    FolderInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        parent_id: {type: [string, 'null'], format: uuid, default: null}
+        name: {type: string, minLength: 1, maxLength: 255}
+    UploadInput:
+      type: object
+      additionalProperties: false
+      required: [name, content_type, byte_count]
+      properties:
+        parent_id: {type: [string, 'null'], format: uuid, default: null}
+        name: {type: string, minLength: 1, maxLength: 255}
+        content_type: {$ref: '#/components/schemas/MimeType'}
+        byte_count: {type: integer, minimum: 1, maximum: 20000000}
+    Folder:
+      type: object
+      required: [id, kind, parent_id, name, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        kind: {const: folder}
+        parent_id: {type: [string, 'null'], format: uuid}
+        name: {type: string}
+        created_at: {type: string, format: date-time}
+    File:
+      type: object
+      required: [id, kind, parent_id, name, created_at, content_type, byte_count]
+      properties:
+        id: {type: string, format: uuid}
+        kind: {const: file}
+        parent_id: {type: [string, 'null'], format: uuid}
+        name: {type: string}
+        created_at: {type: string, format: date-time}
+        content_type: {$ref: '#/components/schemas/MimeType'}
+        byte_count: {type: integer, minimum: 1, maximum: 20000000}
+    Upload:
+      type: object
+      required: [file_id, status, parent_id, name, content_type, byte_count]
+      properties:
+        file_id: {type: string, format: uuid}
+        status: {type: string, enum: [pending, ready, cancelled, expired]}
+        parent_id: {type: [string, 'null'], format: uuid}
+        name: {type: string}
+        content_type: {$ref: '#/components/schemas/MimeType'}
+        byte_count: {type: integer}
+        file: {$ref: '#/components/schemas/File'}
+        upload_target:
+          type: object
+          required: [url, method, headers, body_encoding, expires_at]
+          properties:
+            url: {type: string, format: uri}
+            method: {const: PUT}
+            headers:
+              type: object
+              additionalProperties: {type: string}
+            body_encoding: {const: raw}
+            expires_at: {type: string, format: date-time}
