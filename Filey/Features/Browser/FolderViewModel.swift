@@ -7,6 +7,8 @@
 
 import Foundation
 import Observation
+import PhotosUI
+import SwiftUI
 
 @MainActor
 @Observable
@@ -142,7 +144,7 @@ final class FolderViewModel {
 		}
 
 		do {
-			_ = try await service.uploadPDF(upload)
+			_ = try await service.uploadFile(upload)
 
 			try? FileManager.default.removeItem(at: upload.localURL)
 			pendingUpload = nil
@@ -163,6 +165,40 @@ final class FolderViewModel {
 		}
 		uploadErrorMessage = error.localizedDescription
 		showsUploadError = true
+	}
+
+	/// Loads the selected photo, prepares a JPEG, and starts uploading.
+	func importPhoto(_ photo: PhotosPickerItem) async {
+		guard !isUploading,
+			pendingUpload == nil
+		else {
+			return
+		}
+		isUploading = true
+		showsUploadError = false
+		do {
+			guard
+				let data = try await photo.loadTransferable(
+					type: Data.self
+				)
+			else {
+				throw FileImportError.invalidPhoto
+			}
+
+			try Task.checkCancellation()
+
+			pendingUpload = try await PhotoImporter.stage(
+				data: data,
+				parentID: folder.id
+			)
+		} catch {
+			isUploading = false
+			handleUploadError(error)
+			return
+		}
+
+		isUploading = false
+		await uploadPendingFile()
 	}
 
 	/// Loads the folder if we haven't started yet.

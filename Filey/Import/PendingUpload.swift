@@ -7,7 +7,7 @@
 
 import Foundation
 
-/// A staged PDF and the metadata needed to upload it.
+/// A staged file and the metadata needed to upload it.
 struct PendingUpload: Encodable, Sendable {
 	/// Reuse this ID and the same metadata when retrying.
 	let id: UUID
@@ -19,6 +19,8 @@ struct PendingUpload: Encodable, Sendable {
 	let name: String
 	/// The size of the staged copy in bytes.
 	let byteCount: Int64
+	/// The MIME type sent to the backend and Storage.
+	let contentType: String
 
 	enum CodingKeys: String, CodingKey {
 		case parentID = "parent_id"
@@ -34,7 +36,7 @@ struct PendingUpload: Encodable, Sendable {
 		// Root uploads explicitly send null.
 		try container.encode(parentID, forKey: .parentID)
 		try container.encode(name, forKey: .name)
-		try container.encode("application/pdf", forKey: .contentType)
+		try container.encode(contentType, forKey: .contentType)
 		try container.encode(byteCount, forKey: .byteCount)
 	}
 }

@@ -257,7 +257,7 @@ private final class MockService: FileyServicing {
 		throw URLError(.unsupportedURL)
 	}
 
-	func uploadPDF(_ upload: PendingUpload) async throws -> FileItem {
+	func uploadFile(_ upload: PendingUpload) async throws -> FileItem {
 		try await uploadHandler(upload)
 	}
 }

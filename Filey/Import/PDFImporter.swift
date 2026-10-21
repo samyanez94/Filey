@@ -46,7 +46,8 @@ enum PDFImporter {
 				localURL: destination,
 				parentID: parentID,
 				name: source.lastPathComponent,
-				byteCount: byteCount
+				byteCount: byteCount,
+				contentType: "application/pdf"
 			)
 		} catch {
 			try? FileManager.default.removeItem(at: destination)

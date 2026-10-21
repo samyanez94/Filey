@@ -8,7 +8,9 @@ struct PDFImporterTests {
 	func rejectsInvalidSize(byteCount: Int) async throws {
 		let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("pdf")
 		try Data(repeating: 0, count: byteCount).write(to: url)
-		defer { try? FileManager.default.removeItem(at: url) }
+		defer {
+			try? FileManager.default.removeItem(at: url)
+		}
 
 		await #expect {
 			try await PDFImporter.stage(source: url, parentID: nil)
@@ -24,7 +26,8 @@ struct PDFImporterTests {
 			localURL: URL(filePath: "/tmp/test.pdf"),
 			parentID: nil,
 			name: "Test.pdf",
-			byteCount: 123
+			byteCount: 123,
+			contentType: "application/pdf"
 		)
 		let data = try JSONEncoder().encode(upload)
 		let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])

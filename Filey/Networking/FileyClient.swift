@@ -17,8 +17,8 @@ protocol FileyServicing: Sendable {
 	/// Gets a temporary URL for downloading a file.
 	func getDownloadTarget(fileID: UUID) async throws -> DownloadTarget
 
-	/// Uploads or resumes a staged PDF using its existing ID.
-	func uploadPDF(_ upload: PendingUpload) async throws -> FileItem
+	/// Uploads or resumes a staged file using its existing ID.
+	func uploadFile(_ upload: PendingUpload) async throws -> FileItem
 }
 
 /// Talks to the Filey API using our shared key.
@@ -66,12 +66,10 @@ final class FileyClient: FileyServicing {
 		return try await send(request)
 	}
 
-	/// Uploads a staged PDF and publishes it in its folder.
+	/// Uploads a staged file and publishes it in its folder.
 	///
-	/// Starts or resumes the upload, sends raw bytes to Storage, then confirms completion.
-	/// Reusing the same ID lets a retry recover a file that already finished uploading.
-	/// The caller keeps the local file for retries and removes it after success.
-	func uploadPDF(_ upload: PendingUpload) async throws -> FileItem {
+	/// Starts or resumes the upload, sends raw bytes to Storage, then confirms completion. Reusing the same ID lets a retry recover a file that already finished uploading. The caller keeps the local file for retries and removes it after success.
+	func uploadFile(_ upload: PendingUpload) async throws -> FileItem {
 		var beginRequest = try makeRequest(
 			path: "uploads/\(upload.id.uuidString)"
 		)

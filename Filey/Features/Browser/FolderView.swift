@@ -5,6 +5,7 @@
 //  Created by Samuel Yanez on 10/20/26.
 //
 
+import PhotosUI
 import QuickLook
 import SwiftUI
 import UniformTypeIdentifiers
@@ -14,6 +15,10 @@ struct FolderView: View {
 	@State private var viewModel: FolderViewModel
 
 	@State private var showsFileImporter = false
+
+	@State private var showsPhotoPicker = false
+
+	@State private var selectedPhoto: PhotosPickerItem?
 
 	init(
 		folder: FolderLocation,
@@ -41,7 +46,7 @@ struct FolderView: View {
 				ToolbarItem(placement: .topBarTrailing) {
 					if viewModel.isUploading {
 						ProgressView()
-							.accessibilityLabel("Uploading PDF")
+							.accessibilityLabel("Preparing or uploading file")
 					} else if viewModel.pendingUpload != nil {
 						Button("Retry Upload", systemImage: "arrow.clockwise") {
 							Task {
@@ -49,8 +54,16 @@ struct FolderView: View {
 							}
 						}
 					} else {
-						Button("Import PDF", systemImage: "plus") {
-							showsFileImporter = true
+						Menu {
+							Button("Import PDF", systemImage: "doc") {
+								showsFileImporter = true
+							}
+
+							Button("Choose Photo", systemImage: "photo") {
+								showsPhotoPicker = true
+							}
+						} label: {
+							Label("Add", systemImage: "plus")
 						}
 					}
 				}
@@ -81,6 +94,21 @@ struct FolderView: View {
 					viewModel.handleUploadError(error)
 				}
 			}
+			.photosPicker(
+				isPresented: $showsPhotoPicker,
+				selection: $selectedPhoto,
+				matching: .images
+			)
+			.onChange(of: selectedPhoto) { _, photo in
+				guard let photo else {
+					return
+				}
+				// Reset so choosing the same photo again still triggers an import.
+				selectedPhoto = nil
+				Task {
+					await viewModel.importPhoto(photo)
+				}
+			}
 			.quickLookPreview($viewModel.previewURL)
 			.alert(
 				"Couldn't Preview File",
@@ -91,7 +119,7 @@ struct FolderView: View {
 				Text(viewModel.previewErrorMessage)
 			}
 			.alert(
-				"Couldn't Upload PDF",
+				"Couldn't Upload File",
 				isPresented: $viewModel.showsUploadError
 			) {
 				Button("OK", role: .cancel) {}
