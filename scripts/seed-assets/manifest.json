@@ -1,0 +1,131 @@
+{
+  "version": 2,
+  "folders": [
+    {
+      "key": "documents",
+      "name": "Documents",
+      "parent": null,
+      "idempotencyKey": "31000000-0000-4000-8000-000000000001"
+    },
+    {
+      "key": "receipts",
+      "name": "Receipts",
+      "parent": "documents",
+      "idempotencyKey": "31000000-0000-4000-8000-000000000002"
+    },
+    {
+      "key": "photos",
+      "name": "Photos",
+      "parent": null,
+      "idempotencyKey": "31000000-0000-4000-8000-000000000003"
+    },
+    {
+      "key": "travel",
+      "name": "Travel",
+      "parent": null,
+      "idempotencyKey": "31000000-0000-4000-8000-000000000004"
+    },
+    {
+      "key": "reservations",
+      "name": "Reservations",
+      "parent": "travel",
+      "idempotencyKey": "31000000-0000-4000-8000-000000000005"
+    },
+    {
+      "key": "inbox",
+      "name": "Inbox",
+      "parent": null,
+      "idempotencyKey": "31000000-0000-4000-8000-000000000006"
+    }
+  ],
+  "files": [
+    {
+      "id": "32000000-0000-4000-8000-000000000001",
+      "name": "Sample Resume.pdf",
+      "parent": "documents",
+      "contentType": "application/pdf",
+      "byteCount": 2642,
+      "sha256": "2ba1a5c72e6a5369b8853b9bd0c14e024766b7afb1f70c6eb5e655b5bf2ab88b"
+    },
+    {
+      "id": "32000000-0000-4000-8000-000000000002",
+      "name": "Apartment Checklist.pdf",
+      "parent": "documents",
+      "contentType": "application/pdf",
+      "byteCount": 2508,
+      "sha256": "deba29809efa571585e9e6cc03db374cd5631f7b0890cd750233c449e9e3fa1a"
+    },
+    {
+      "id": "32000000-0000-4000-8000-000000000003",
+      "name": "Coffee Receipt.pdf",
+      "parent": "receipts",
+      "contentType": "application/pdf",
+      "byteCount": 2369,
+      "sha256": "d293980a2dae490217308068d7e2f7eee4b3cb3b68df3a9e690e6393caff998d"
+    },
+    {
+      "id": "32000000-0000-4000-8000-000000000004",
+      "name": "Office Supplies.pdf",
+      "parent": "receipts",
+      "contentType": "application/pdf",
+      "byteCount": 2426,
+      "sha256": "72343cd611c14a33d734d27e8de0a5f021f36d6df4751b3f01c28def8f0a1cb4"
+    },
+    {
+      "id": "32000000-0000-4000-8000-000000000005",
+      "name": "Mountain Hike.jpg",
+      "parent": "photos",
+      "contentType": "image/jpeg",
+      "byteCount": 1899468,
+      "sha256": "f98df3a0f97d229426e2fe8c3b9983b201ef567022c16874b5d6975dac150777"
+    },
+    {
+      "id": "32000000-0000-4000-8000-000000000006",
+      "name": "Beach Sunset.jpg",
+      "parent": "photos",
+      "contentType": "image/jpeg",
+      "byteCount": 271542,
+      "sha256": "cb66c6ac0855bf366776ac86b3109891366c97b953b547507f964b4f731d1dc2"
+    },
+    {
+      "id": "32000000-0000-4000-8000-000000000007",
+      "name": "City Walk.jpg",
+      "parent": "photos",
+      "contentType": "image/jpeg",
+      "byteCount": 2019133,
+      "sha256": "1032640ac5f23caec59d751a663dd90c90075bb1fef05b379aed9f436704e5f9"
+    },
+    {
+      "id": "32000000-0000-4000-8000-000000000008",
+      "name": "Weekend Itinerary.pdf",
+      "parent": "travel",
+      "contentType": "application/pdf",
+      "byteCount": 3927,
+      "sha256": "8bb020be8d61dcaa04e44b74eba3128e143372bf3a2a56f552ef380c698db2d8"
+    },
+    {
+      "id": "32000000-0000-4000-8000-000000000009",
+      "name": "Hotel Confirmation.pdf",
+      "parent": "reservations",
+      "contentType": "application/pdf",
+      "byteCount": 2535,
+      "sha256": "54d9b03fdf11a001a997f5f679fef495eb78aef643c4a6b808571857ca7d9348"
+    },
+    {
+      "id": "32000000-0000-4000-8000-000000000010",
+      "name": "Getting Started.pdf",
+      "parent": null,
+      "contentType": "application/pdf",
+      "byteCount": 2569,
+      "sha256": "621fc619635889db9cdae481f6848dae010c29543289955ef60591189a135710"
+    },
+    {
+      "id": "32000000-0000-4000-8000-000000000011",
+      "name": "Desk Setup.jpg",
+      "parent": null,
+      "contentType": "image/jpeg",
+      "byteCount": 903293,
+      "sha256": "5e30c5839d51085e194c30cb9d325717cc1d52ce2c28510e093d46d144ad89c9"
+    }
+  ]
+}

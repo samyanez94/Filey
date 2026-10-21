@@ -18,61 +18,53 @@ if (Deno.args.includes("--account")) {
   console.log(`Demo account ID: ${user!.id}`);
   console.log("Set DEMO_USER_ID in .env.local and the Edge Function environment to this ID.");
 } else {
-  const folder = await api("/folders", "POST", { parent_id: null, name: "Sample Files" }, {
-    "Idempotency-Key": "10000000-0000-4000-8000-000000000001",
-  });
-  const nested = await api("/folders", "POST", {
-    parent_id: folder.id,
-    name: "Interview Notes",
-  }, { "Idempotency-Key": "10000000-0000-4000-8000-000000000002" });
-  // Valid tiny PNG and a generated one-page PDF; no external downloads or libraries.
-  const png = Uint8Array.from(
-    atob(
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGMwqTgJAAJZAXbPjnORAAAAAElFTkSuQmCC",
-    ),
-    (c) => c.charCodeAt(0),
-  );
-  // Keep fixture byte length stable so existing seed IDs remain replayable.
-  const title = "Filey demo PDF".padEnd(21);
-  const stream = `BT /F1 18 Tf 50 750 Td (${title}) Tj ET`;
-  const objects = [
-    "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
-  ];
-  let pdf = "%PDF-1.4\n";
-  const offsets = [0];
-  for (const [i, object] of objects.entries()) {
-    offsets.push(pdf.length);
-    pdf += `${i + 1} 0 obj\n${object}\nendobj\n`;
+  // Read and validate every asset before creating any remote content.
+  const manifest = JSON.parse(
+    await Deno.readTextFile(new URL("./seed-assets/manifest.json", import.meta.url)),
+  ) as {
+    folders: { key: string; name: string; parent: string | null; idempotencyKey: string }[];
+    files: {
+      id: string;
+      name: string;
+      parent: string | null;
+      contentType: string;
+      byteCount: number;
+      sha256: string;
+    }[];
+  };
+  const fixtures = await Promise.all(manifest.files.map(async (file) => {
+    const bytes = await Deno.readFile(
+      new URL(
+        "./seed-assets/" + encodeURIComponent(file.name),
+        import.meta.url,
+      ),
+    );
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    const hash = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    if (bytes.length !== file.byteCount || hash !== file.sha256) {
+      throw Error("Seed asset changed: " + file.name + ". Use new upload IDs for revised assets.");
+    }
+    return { ...file, bytes };
+  }));
+  const folders = new Map<string, string>();
+  const parentID = (key: string | null): string | null => {
+    if (key === null) return null;
+    const id = folders.get(key);
+    if (!id) throw Error("Unknown seed parent: " + key);
+    return id;
+  };
+  for (const folder of manifest.folders) {
+    const created = await api("/folders", "POST", {
+      parent_id: parentID(folder.parent),
+      name: folder.name,
+    }, { "Idempotency-Key": folder.idempotencyKey });
+    folders.set(folder.key, created.id);
   }
-  const xref = pdf.length;
-  pdf += `xref\n0 6\n0000000000 65535 f \n${
-    offsets.slice(1).map((n) => `${String(n).padStart(10, "0")} 00000 n \n`).join("")
-  }trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-  const fixtures = [
-    {
-      id: "20000000-0000-4000-8000-000000000001",
-      parent_id: folder.id,
-      name: "Sample Photo.png",
-      type: "image/png",
-      bytes: png,
-    },
-    {
-      id: "20000000-0000-4000-8000-000000000002",
-      parent_id: nested.id,
-      name: "Interview Notes.pdf",
-      type: "application/pdf",
-      bytes: new TextEncoder().encode(pdf),
-    },
-  ];
   for (const f of fixtures) {
     const upload = await api(`/uploads/${f.id}`, "PUT", {
-      parent_id: f.parent_id,
+      parent_id: parentID(f.parent),
       name: f.name,
-      content_type: f.type,
+      content_type: f.contentType,
       byte_count: f.bytes.length,
     });
     if (upload.status === "ready") continue;
@@ -81,6 +73,7 @@ if (Deno.args.includes("--account")) {
       method: target.method,
       headers: target.headers,
       body: f.bytes,
+      signal: AbortSignal.timeout(60_000),
     });
     const ok = response.ok;
     await response.body?.cancel();
@@ -92,5 +85,8 @@ if (Deno.args.includes("--account")) {
       throw e;
     }
   }
-  console.log("Seeded nested folders, a PNG, and a PDF through the application API.");
+  console.log(
+    "Seeded " + manifest.folders.length + " folders and " + fixtures.length +
+      " real files through the application API.",
+  );
 }
