@@ -9,10 +9,11 @@ import SwiftUI
 
 struct FileItemRow: View {
 	let item: FileItem
+	var isDownloading = false
 
 	var body: some View {
 		HStack(spacing: 12) {
-			Image(systemName: item.kind == .folder ? "folder" : "doc")
+			Image(systemName: item.kind == .folder ? "folder.fill" : "document.fill")
 				.foregroundStyle(.blue)
 				.accessibilityHidden(true)
 
@@ -33,6 +34,11 @@ struct FileItemRow: View {
 					.font(.caption)
 					.foregroundStyle(.secondary)
 				}
+			}
+			Spacer()
+			if isDownloading {
+				ProgressView()
+					.accessibilityLabel("Downloading file")
 			}
 		}
 		.accessibilityElement(children: .combine)
