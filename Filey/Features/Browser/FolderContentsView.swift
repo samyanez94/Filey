@@ -10,6 +10,8 @@ import SwiftUI
 struct FolderContentsView: View {
 	let page: ItemsPage
 	let downloadingFileID: UUID?
+	let loadMoreError: String?
+	let onLoadMore: () async -> Void
 	let onSelectFile: (FileItem) -> Void
 
 	var body: some View {
@@ -17,8 +19,36 @@ struct FolderContentsView: View {
 			ForEach(page.items) { item in
 				row(for: item)
 			}
+			if let cursor = page.nextCursor {
+				paginationFooter(cursor: cursor)
+			}
 		}
 		.contentMargins(.top, 12, for: .scrollContent)
+	}
+
+	@ViewBuilder
+	private func paginationFooter(cursor: String) -> some View {
+		if let loadMoreError {
+			VStack(spacing: 8) {
+				Text("Couldn't load more files.")
+				Text(loadMoreError)
+					.font(.caption)
+					.foregroundStyle(.secondary)
+				Button("Retry") {
+					Task {
+						await onLoadMore()
+					}
+				}
+			}
+			.frame(maxWidth: .infinity)
+		} else {
+			ProgressView()
+				.accessibilityLabel("Loading more files")
+				.frame(maxWidth: .infinity)
+				.task(id: cursor) {
+					await onLoadMore()
+				}
+		}
 	}
 
 	@ViewBuilder

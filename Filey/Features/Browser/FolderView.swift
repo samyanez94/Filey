@@ -134,7 +134,7 @@ struct FolderView: View {
 		case .idle, .loading:
 			ProgressView("Loading files…")
 		case .loaded(let page):
-			if page.items.isEmpty {
+			if page.items.isEmpty && page.nextCursor == nil {
 				ContentUnavailableView(
 					"This Folder Is Empty",
 					systemImage: "folder",
@@ -144,7 +144,13 @@ struct FolderView: View {
 				FolderContentsView(
 					page: page,
 					downloadingFileID: viewModel.selectedFile?.id,
-					onSelectFile: { viewModel.selectedFile = $0 }
+					loadMoreError: viewModel.loadMoreError,
+					onLoadMore: {
+						await viewModel.loadMore()
+					},
+					onSelectFile: {
+						viewModel.selectedFile = $0
+					}
 				)
 			}
 		case .failed(let message):

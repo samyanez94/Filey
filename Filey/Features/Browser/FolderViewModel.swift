@@ -25,6 +25,12 @@ final class FolderViewModel {
 
 	private(set) var state: State = .idle
 
+	private(set) var isLoadingMore = false
+
+	private(set) var loadMoreError: String?
+
+	private var latestPageRequestID: UUID?
+
 	var selectedFile: FileItem?
 
 	var previewURL: URL? {
@@ -207,14 +213,67 @@ final class FolderViewModel {
 		await load()
 	}
 
+	/// Appends the next page without hiding the files already on screen.
+	func loadMore() async {
+		guard !isLoadingMore,
+			case .loaded(let current) = state,
+			let cursor = current.nextCursor
+		else {
+			return
+		}
+		let requestID = UUID()
+		latestPageRequestID = requestID
+		isLoadingMore = true
+		loadMoreError = nil
+		defer {
+			if latestPageRequestID == requestID {
+				isLoadingMore = false
+			}
+		}
+		do {
+			try Task.checkCancellation()
+			let page = try await service.getItems(parentID: folder.id, cursor: cursor)
+			try Task.checkCancellation()
+			guard latestPageRequestID == requestID else {
+				return
+			}
+			// A repeated cursor would keep the visible footer requesting forever.
+			guard page.nextCursor != cursor else {
+				throw APIError.invalidData
+			}
+			var ids = Set(current.items.map(\.id))
+			let newItems = page.items.filter {
+				ids.insert($0.id).inserted
+			}
+			state = .loaded(
+				ItemsPage(items: current.items + newItems, nextCursor: page.nextCursor)
+			)
+		} catch {
+			guard latestPageRequestID == requestID else {
+				return
+			}
+			guard !Task.isCancelled,
+				!(error is CancellationError),
+				(error as? URLError)?.code != .cancelled
+			else {
+				return
+			}
+			loadMoreError = error.localizedDescription
+		}
+	}
+
 	func load() async {
+		latestPageRequestID = nil
+		isLoadingMore = false
+		loadMoreError = nil
 		let requestID = UUID()
 		latestRequestID = requestID
 		state = .loading
 		do {
 			try Task.checkCancellation()
 			let page = try await service.getItems(
-				parentID: folder.id
+				parentID: folder.id,
+				cursor: nil
 			)
 
 			try Task.checkCancellation()

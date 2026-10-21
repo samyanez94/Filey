@@ -55,6 +55,21 @@ struct FileyClientTests {
 		)
 	}
 
+	@Test func paginationIncludesEncodedCursor() async throws {
+		let cursor = "next+/=& page"
+		try await withClient(
+			handler: { request in
+				let url = try #require(request.url)
+				let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+				#expect(components.queryItems == [URLQueryItem(name: "cursor", value: cursor)])
+				return try Self.response(request, body: #"{"items":[],"next_cursor":null}"#)
+			},
+			test: { client in
+				_ = try await client.getItems(parentID: nil, cursor: cursor)
+			}
+		)
+	}
+
 	@Test func emptyPageDecodes() async throws {
 		try await withClient(
 			handler: {

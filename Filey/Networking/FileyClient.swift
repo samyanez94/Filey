@@ -11,8 +11,8 @@ import Foundation
 @MainActor
 protocol FileyServicing: Sendable {
 
-	/// Loads a folder’s first page. Pass nil for the shared root folder.
-	func getItems(parentID: UUID?) async throws -> ItemsPage
+	/// Loads a folder page. A nil parent selects the root; a nil cursor starts at the first page.
+	func getItems(parentID: UUID?, cursor: String?) async throws -> ItemsPage
 
 	/// Gets a temporary URL for downloading a file.
 	func getDownloadTarget(fileID: UUID) async throws -> DownloadTarget
@@ -39,17 +39,20 @@ final class FileyClient: FileyServicing {
 		self.session = session
 	}
 
-	/// Loads a folder’s first page. Pass nil for the shared root folder.
+	/// Loads a folder page. A nil parent selects the root; a nil cursor starts at the first page.
 	///
 	/// - Returns: The folders and files, plus a cursor if there’s another page.
 	///
 	/// - Throws: An `APIError` if the response isn't usable. Network and cancellation
 	///   errors pass through unchanged.
-	func getItems(parentID: UUID?) async throws -> ItemsPage {
-		let queryItems =
+	func getItems(parentID: UUID?, cursor: String? = nil) async throws -> ItemsPage {
+		var queryItems =
 			parentID.map {
 				[URLQueryItem(name: "parent_id", value: $0.uuidString)]
 			} ?? []
+		if let cursor {
+			queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+		}
 		let request = try makeRequest(
 			path: "items",
 			queryItems: queryItems

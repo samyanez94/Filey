@@ -172,6 +172,77 @@ struct FolderViewModelTests {
 		#expect(service.requestCount == 1)
 	}
 
+	@Test func paginationAppendsUniqueFilesAndStopsAtLastPage() async {
+		let first = FileItem(id: UUID(), kind: .file, name: "First.pdf", byteCount: 1)
+		let second = FileItem(id: UUID(), kind: .file, name: "Second.pdf", byteCount: 1)
+		let service = MockService { _ in ItemsPage(items: [first], nextCursor: "next") }
+		service.pageHandler = { cursor in
+			#expect(cursor == "next")
+			return ItemsPage(items: [first, second, second], nextCursor: nil)
+		}
+		let model = FolderViewModel(folder: .root, service: service)
+		await model.load()
+		await model.loadMore()
+		guard case .loaded(let page) = model.state else {
+			Issue.record("Expected loaded files")
+			return
+		}
+		#expect(page.items.map(\.id) == [first.id, second.id])
+		#expect(page.nextCursor == nil)
+		service.pageHandler = { _ in
+			Issue.record("The last page should stop pagination")
+			throw URLError(.badURL)
+		}
+		await model.loadMore()
+		#expect(!model.isLoadingMore)
+	}
+
+	@Test func paginationFailureKeepsFilesAndCanRetry() async {
+		let first = FileItem(id: UUID(), kind: .file, name: "First.pdf", byteCount: 1)
+		let service = MockService { _ in ItemsPage(items: [first], nextCursor: "next") }
+		service.pageHandler = { _ in throw URLError(.notConnectedToInternet) }
+		let model = FolderViewModel(folder: .root, service: service)
+		await model.load()
+		await model.loadMore()
+		#expect(model.loadMoreError != nil)
+		guard case .loaded(let page) = model.state else {
+			Issue.record("Existing files should stay visible")
+			return
+		}
+		#expect(page.items.map(\.id) == [first.id])
+		#expect(page.nextCursor == "next")
+		service.pageHandler = { _ in ItemsPage(items: [], nextCursor: nil) }
+		await model.loadMore()
+		#expect(model.loadMoreError == nil)
+		#expect(!model.isLoadingMore)
+	}
+
+	@Test func refreshDiscardsAnOlderPageResponse() async {
+		let service = MockService { _ in ItemsPage(items: [], nextCursor: "next") }
+		let model = FolderViewModel(folder: .root, service: service)
+		await model.load()
+		service.pageHandler = { _ in
+			// Refresh while the page request is suspended in the service.
+			await model.loadMore()  // A duplicate request must be ignored.
+			service.handler = { _ in ItemsPage(items: [], nextCursor: nil) }
+			await model.load()
+			return ItemsPage(
+				items: [
+					FileItem(id: UUID(), kind: .file, name: "Stale.pdf", byteCount: 1)
+				],
+				nextCursor: "stale"
+			)
+		}
+		await model.loadMore()
+		guard case .loaded(let page) = model.state else {
+			Issue.record("Expected the refreshed page")
+			return
+		}
+		#expect(page.items.isEmpty)
+		#expect(page.nextCursor == nil)
+		#expect(!model.isLoadingMore)
+	}
+
 	@Test func failedLoadCanBeRetried() async {
 		let service = MockService { _ in throw APIError.unauthorized }
 		let model = FolderViewModel(folder: .root, service: service)
@@ -233,6 +304,9 @@ struct FolderViewModelTests {
 private final class MockService: FileyServicing {
 
 	private(set) var requestCount = 0
+	var pageHandler: @MainActor (String) async throws -> ItemsPage = { _ in
+		throw URLError(.unsupportedURL)
+	}
 
 	var downloadHandler: @MainActor (UUID) async throws -> DownloadTarget = { _ in
 		throw URLError(.unsupportedURL)
@@ -244,7 +318,8 @@ private final class MockService: FileyServicing {
 		self.handler = handler
 	}
 
-	func getItems(parentID: UUID?) async throws -> ItemsPage {
+	func getItems(parentID: UUID?, cursor: String?) async throws -> ItemsPage {
+		if let cursor { return try await pageHandler(cursor) }
 		requestCount += 1
 		return try await handler(parentID)
 	}
