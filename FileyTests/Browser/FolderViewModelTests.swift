@@ -128,6 +128,26 @@ struct FolderViewModelTests {
 		#expect(!model.showsPreviewError)
 	}
 
+	@Test func preparationFailureShowsErrorWithoutUploading() async throws {
+		let source = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".pdf")
+		try Data().write(to: source)
+		defer { try? FileManager.default.removeItem(at: source) }
+		let service = MockService { _ in ItemsPage(items: [], nextCursor: nil) }
+		service.uploadHandler = { _ in
+			Issue.record("A file that failed preparation should not upload")
+			throw URLError(.badURL)
+		}
+		let model = FolderViewModel(folder: .root, service: service)
+
+		await model.importPDF(from: source)
+
+		#expect(!model.isUploading)
+		#expect(model.pendingUpload == nil)
+		#expect(model.showsUploadError)
+		#expect(model.uploadErrorMessage == FileImportError.invalidSize.localizedDescription)
+		#expect(service.requestCount == 0)
+	}
+
 	@Test func failedUploadRetainsFileAndRetryCleansUp() async throws {
 		let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

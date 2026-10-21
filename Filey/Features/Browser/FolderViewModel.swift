@@ -29,6 +29,9 @@ final class FolderViewModel {
 
 	private(set) var loadMoreError: String?
 
+	// A slower, older request should never replace the latest result.
+	private var latestRequestID: UUID?
+
 	private var latestPageRequestID: UUID?
 
 	var selectedFile: FileItem?
@@ -59,9 +62,6 @@ final class FolderViewModel {
 
 	private let service: any FileyServicing
 
-	// A slower, older request should never replace the latest result.
-	private var latestRequestID: UUID?
-
 	init(
 		folder: FolderLocation,
 		service: any FileyServicing,
@@ -72,140 +72,7 @@ final class FolderViewModel {
 		self.previewDownloader = previewDownloader ?? PreviewDownloader()
 	}
 
-	/// Prepares a local file and leaves presentation to the view.
-	func preparePreview(for file: FileItem) async {
-		let requestID = UUID()
-		latestPreviewRequestID = requestID
-		showsPreviewError = false
-		defer {
-			if latestPreviewRequestID == requestID,
-				selectedFile?.id == file.id
-			{
-				selectedFile = nil
-			}
-		}
-		do {
-			try Task.checkCancellation()
-			let target = try await service.getDownloadTarget(fileID: file.id)
-			try Task.checkCancellation()
-			let localURL = try await previewDownloader.download(target)
-			guard !Task.isCancelled,
-				latestPreviewRequestID == requestID,
-				selectedFile?.id == file.id
-			else {
-				try? FileManager.default.removeItem(at: localURL)
-				return
-			}
-			previewURL = localURL
-		} catch {
-			guard latestPreviewRequestID == requestID,
-				selectedFile?.id == file.id,
-				!Task.isCancelled,
-				!(error is CancellationError),
-				(error as? URLError)?.code != .cancelled
-			else {
-				return
-			}
-			previewErrorMessage = error.localizedDescription
-			showsPreviewError = true
-		}
-	}
-
-	func importPDF(from source: URL) async {
-		guard !isUploading,
-			pendingUpload == nil
-		else {
-			return
-		}
-
-		isUploading = true
-		showsUploadError = false
-
-		do {
-			pendingUpload = try await PDFImporter.stage(
-				source: source,
-				parentID: folder.id
-			)
-		} catch {
-			isUploading = false
-			handleUploadError(error)
-			return
-		}
-
-		isUploading = false
-		await uploadPendingFile()
-	}
-
-	func uploadPendingFile() async {
-		guard !isUploading,
-			let upload = pendingUpload
-		else {
-			return
-		}
-
-		isUploading = true
-		showsUploadError = false
-		defer {
-			isUploading = false
-		}
-
-		do {
-			_ = try await service.uploadFile(upload)
-
-			try? FileManager.default.removeItem(at: upload.localURL)
-			pendingUpload = nil
-
-			await load()
-		} catch {
-			// Keep the UUID and staged file so Retry resumes this upload.
-			handleUploadError(error)
-		}
-	}
-
-	func handleUploadError(_ error: any Error) {
-		guard !Task.isCancelled,
-			!(error is CancellationError),
-			(error as? URLError)?.code != .cancelled
-		else {
-			return
-		}
-		uploadErrorMessage = error.localizedDescription
-		showsUploadError = true
-	}
-
-	/// Loads the selected photo, prepares a JPEG, and starts uploading.
-	func importPhoto(_ photo: PhotosPickerItem) async {
-		guard !isUploading,
-			pendingUpload == nil
-		else {
-			return
-		}
-		isUploading = true
-		showsUploadError = false
-		do {
-			guard
-				let data = try await photo.loadTransferable(
-					type: Data.self
-				)
-			else {
-				throw FileImportError.invalidPhoto
-			}
-
-			try Task.checkCancellation()
-
-			pendingUpload = try await PhotoImporter.stage(
-				data: data,
-				parentID: folder.id
-			)
-		} catch {
-			isUploading = false
-			handleUploadError(error)
-			return
-		}
-
-		isUploading = false
-		await uploadPendingFile()
-	}
+	// MARK: - Folder loading
 
 	/// Loads the folder if we haven't started yet.
 	func loadIfNeeded() async {
@@ -295,5 +162,119 @@ final class FolderViewModel {
 
 			state = .failed(error.localizedDescription)
 		}
+	}
+
+	// MARK: - File previews
+
+	/// Prepares a local file and leaves presentation to the view.
+	func preparePreview(for file: FileItem) async {
+		let requestID = UUID()
+		latestPreviewRequestID = requestID
+		showsPreviewError = false
+		defer {
+			if latestPreviewRequestID == requestID,
+				selectedFile?.id == file.id
+			{
+				selectedFile = nil
+			}
+		}
+		do {
+			try Task.checkCancellation()
+			let target = try await service.getDownloadTarget(fileID: file.id)
+			try Task.checkCancellation()
+			let localURL = try await previewDownloader.download(target)
+			guard !Task.isCancelled,
+				latestPreviewRequestID == requestID,
+				selectedFile?.id == file.id
+			else {
+				try? FileManager.default.removeItem(at: localURL)
+				return
+			}
+			previewURL = localURL
+		} catch {
+			guard latestPreviewRequestID == requestID,
+				selectedFile?.id == file.id,
+				!Task.isCancelled,
+				!(error is CancellationError),
+				(error as? URLError)?.code != .cancelled
+			else {
+				return
+			}
+			previewErrorMessage = error.localizedDescription
+			showsPreviewError = true
+		}
+	}
+
+	// MARK: - Imports and uploads
+
+	/// Copies the selected PDF and starts uploading.
+	func importPDF(from source: URL) async {
+		await importFile {
+			try await PDFImporter.stage(source: source, parentID: folder.id)
+		}
+	}
+
+	/// Loads the selected photo, prepares a JPEG, and starts uploading.
+	func importPhoto(_ photo: PhotosPickerItem) async {
+		await importFile {
+			guard let data = try await photo.loadTransferable(type: Data.self) else {
+				throw FileImportError.invalidPhoto
+			}
+			try Task.checkCancellation()
+			return try await PhotoImporter.stage(data: data, parentID: folder.id)
+		}
+	}
+
+	func uploadPendingFile() async {
+		guard !isUploading,
+			let upload = pendingUpload
+		else {
+			return
+		}
+
+		isUploading = true
+		showsUploadError = false
+		defer {
+			isUploading = false
+		}
+
+		do {
+			_ = try await service.uploadFile(upload)
+
+			try? FileManager.default.removeItem(at: upload.localURL)
+			pendingUpload = nil
+
+			await load()
+		} catch {
+			// Keep the UUID and staged file so Retry resumes this upload.
+			handleUploadError(error)
+		}
+	}
+
+	func handleUploadError(_ error: any Error) {
+		guard !Task.isCancelled,
+			!(error is CancellationError),
+			(error as? URLError)?.code != .cancelled
+		else {
+			return
+		}
+		uploadErrorMessage = error.localizedDescription
+		showsUploadError = true
+	}
+
+	/// Keeps preparation and error handling the same for PDFs and photos.
+	private func importFile(prepare: () async throws -> PendingUpload) async {
+		guard !isUploading, pendingUpload == nil else { return }
+		isUploading = true
+		showsUploadError = false
+		do {
+			pendingUpload = try await prepare()
+		} catch {
+			isUploading = false
+			handleUploadError(error)
+			return
+		}
+		isUploading = false
+		await uploadPendingFile()
 	}
 }
