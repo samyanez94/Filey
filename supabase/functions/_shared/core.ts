@@ -124,7 +124,7 @@ export interface Upload extends Item {
   content_type: string;
   byte_count: number;
   storage_key: string;
-  status: "pending" | "ready" | "cancelled" | "expired";
+  status: "pending" | "ready" | "cancelled" | "expired" | "deleted";
 }
 export function publicItem(item: Item, kind: "file" | "folder") {
   return {

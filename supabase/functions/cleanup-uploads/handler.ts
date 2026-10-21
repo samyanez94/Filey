@@ -17,7 +17,7 @@ export function createCleanupHandler(backend: Backend) {
           candidates.slice(offset, offset + 5).map(async (candidate) => {
             try {
               const current = await backend.one<Upload>("files", candidate.id, candidate.owner_id);
-              if (!["cancelled", "expired"].includes(current.status)) return;
+              if (!["cancelled", "expired", "deleted"].includes(current.status)) return;
               await backend.removeObject(current.storage_key);
               await backend.rpc("mark_cleaned", { p_owner: current.owner_id, p_id: current.id });
               removed++;

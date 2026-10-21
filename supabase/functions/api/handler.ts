@@ -140,6 +140,9 @@ export function createHandler(backend: Backend) {
       ) {
         const item = await backend.one<Item>(parts[0], uuid(parts[1]), owner, parts[0] === "files");
         response = json(publicItem(item, parts[0] === "files" ? "file" : "folder"));
+      } else if (parts[0] === "files" && parts.length === 2 && req.method === "DELETE") {
+        await backend.rpc("delete_file", { p_owner: owner, p_id: uuid(parts[1]) });
+        response = json(null, 204);
       } else if (parts[0] === "uploads" && parts.length === 2 && req.method === "PUT") {
         const id = uuid(parts[1]);
         const input = uploadInput(

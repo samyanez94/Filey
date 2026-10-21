@@ -118,7 +118,7 @@ Deno.test("shared key selects only the configured owner and uses server-scoped l
   );
   assert(Number(calls) === 1);
 });
-Deno.test("ready file reads and downloads explicitly filter pending files", async () => {
+Deno.test("file reads and downloads only accept ready files", async () => {
   const backend = new Backend(cfg, (input) => {
     const path = String(input);
     assert(path.includes(`owner_id=eq.${id}`) && path.includes("status=eq.ready"));
@@ -198,5 +198,112 @@ Deno.test("upstream stream failures and non-JSON gateways remain retryable", asy
       assert(error instanceof ApiError && error.retryable);
       assert(error.status === (index === 2 ? 429 : 503));
     }
+  }
+});
+
+Deno.test("file deletion uses the owner-scoped RPC and returns an empty response", async () => {
+  let calls = 0;
+  const handler = createHandler(
+    new Backend(cfg, (input, init) => {
+      calls++;
+      assert(String(input).endsWith("/rpc/delete_file"));
+      const args = JSON.parse(String(init?.body));
+      assert(args.p_owner === cfg.demoID && args.p_id === id);
+      return Promise.resolve(Response.json(null));
+    }),
+  );
+  for (let retry = 0; retry < 2; retry++) {
+    const response = await handler(
+      new Request(`https://example.test/api/v1/files/${id}`, {
+        method: "DELETE",
+        headers: { "X-Filey-API-Key": cfg.apiKey },
+      }),
+    );
+    assert(response.status === 204 && await response.text() === "");
+  }
+  assert(calls === 2);
+  const invalid = await handler(
+    new Request("https://example.test/api/v1/files/invalid", {
+      method: "DELETE",
+      headers: { "X-Filey-API-Key": cfg.apiKey },
+    }),
+  );
+  assert(invalid.status === 400 && calls === 2);
+});
+
+Deno.test("file deletion preserves not-found and lifecycle errors", async () => {
+  for (const [code, status] of [["not_found", 404], ["file_not_ready", 409]] as const) {
+    const handler = createHandler(
+      new Backend(cfg, () => Promise.resolve(Response.json({ message: code }, { status: 400 }))),
+    );
+    const response = await handler(
+      new Request(`https://example.test/api/v1/files/${id}`, {
+        method: "DELETE",
+        headers: { "X-Filey-API-Key": cfg.apiKey },
+      }),
+    );
+    assert(response.status === status);
+    assert((await response.json()).error.code === code);
+  }
+});
+
+Deno.test("deleted storage cleanup retries failures and marks successful removal", async () => {
+  const item = { id, owner_id: id, status: "deleted", storage_key: "owner/file/original" };
+  let fail = true;
+  let marked = 0;
+  const backend = new Backend(cfg, (input, init) => {
+    const path = String(input);
+    if (path.includes("cleanup_candidates") || path.includes("/rest/v1/files")) {
+      return Promise.resolve(Response.json([item]));
+    }
+    if (path.includes("/storage/v1/object/files")) {
+      assert(init?.method === "DELETE");
+      assert(JSON.parse(String(init?.body)).prefixes[0] === item.storage_key);
+      return Promise.resolve(Response.json([], { status: fail ? 503 : 200 }));
+    }
+    assert(path.includes("mark_cleaned"));
+    marked++;
+    return Promise.resolve(Response.json(null));
+  });
+  const run = () =>
+    createCleanupHandler(backend)(
+      new Request("https://example.test/cleanup-uploads", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${cfg.cleanupSecret}` },
+      }),
+    );
+  assert((await run()).status === 503 && marked === 0);
+  fail = false;
+  const response = await run();
+  assert(response.status === 200 && Number(marked) === 1);
+  assert((await response.json()).removed === 1);
+});
+
+Deno.test("deleted uploads cannot complete or issue another target", async () => {
+  const item = { id, owner_id: id, status: "deleted" };
+  const handler = createHandler(
+    new Backend(cfg, (input) => {
+      const path = String(input);
+      if (path.includes("/rpc/begin_upload")) {
+        return Promise.resolve(Response.json({ message: "upload_deleted" }, { status: 400 }));
+      }
+      assert(path.includes("/rest/v1/files"), "Deleted files must not reach Storage");
+      return Promise.resolve(Response.json([item]));
+    }),
+  );
+  for (const complete of [false, true]) {
+    const response = await handler(
+      new Request(
+        `https://example.test/api/v1/uploads/${id}${complete ? "/complete" : ""}`,
+        {
+          method: complete ? "POST" : "PUT",
+          headers: { "X-Filey-API-Key": cfg.apiKey, "Content-Type": "application/json" },
+          body: complete
+            ? undefined
+            : JSON.stringify({ name: "test.pdf", content_type: "application/pdf", byte_count: 9 }),
+        },
+      ),
+    );
+    assert(response.status === 409 && (await response.json()).error.code === "upload_deleted");
   }
 });

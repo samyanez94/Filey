@@ -30,6 +30,8 @@ const domainCodes: Record<string, number> = {
   already_completed: 409,
   upload_cancelled: 409,
   upload_expired: 409,
+  upload_deleted: 409,
+  file_not_ready: 409,
   invalid_request: 400,
 };
 export class Backend {

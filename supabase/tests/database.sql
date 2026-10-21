@@ -29,7 +29,7 @@ do $$
 declare owner uuid := gen_random_uuid(); first_id uuid := gen_random_uuid(); second_id uuid := gen_random_uuid(); claimed uuid; next_claim uuid;
 begin
   insert into auth.users(id) values(owner);
-  update public.files set cleanup_after=now()+interval '1 day' where status in ('cancelled','expired');
+  update public.files set cleanup_after=now()+interval '1 day' where status in ('cancelled','expired','deleted');
   insert into public.files(id,owner_id,name,content_type,byte_count,status,cleanup_after)
   values(first_id,owner,'First','application/pdf',1,'cancelled',now()-interval '2 hours'),
         (second_id,owner,'Second','application/pdf',1,'cancelled',now()-interval '1 hour');
@@ -61,5 +61,48 @@ begin
   if has_function_privilege('authenticated','public.list_demo_items(uuid,uuid,integer,integer,text,uuid)','execute') or
      has_function_privilege('authenticated','public.list_items(uuid,integer,integer,text,uuid)','execute') then
     raise exception 'client listing RPC permitted'; end if;
+end $$;
+-- Deletion is idempotent, owner-scoped, and terminal for upload retries.
+do $$
+declare owner uuid := gen_random_uuid(); other uuid := gen_random_uuid(); file_id uuid := gen_random_uuid(); item public.files;
+begin
+  insert into auth.users(id) values(owner),(other);
+  perform public.begin_upload(owner,file_id,null,'Delete me','application/pdf',1);
+  begin
+    perform public.delete_file(owner,file_id);
+    raise exception 'pending file was deleted';
+  exception when raise_exception then if sqlerrm <> 'file_not_ready' then raise; end if; end;
+  perform public.transition_upload(owner,file_id,'complete');
+  begin
+    perform public.delete_file(other,file_id);
+    raise exception 'cross-owner deletion accepted';
+  exception when raise_exception then if sqlerrm <> 'not_found' then raise; end if; end;
+  begin
+    perform public.delete_file(owner,gen_random_uuid());
+    raise exception 'unknown deletion accepted';
+  exception when raise_exception then if sqlerrm <> 'not_found' then raise; end if; end;
+  perform public.delete_file(owner,file_id);
+  perform public.delete_file(owner,file_id);
+  select * into item from public.files where id=file_id;
+  if item.status <> 'deleted' or item.cleanup_after < item.last_upload_url_expires_at + interval '15 minutes' then
+    raise exception 'deletion did not preserve cleanup safety'; end if;
+  if jsonb_array_length(public.list_demo_items(owner)) <> 0 then raise exception 'deleted file is listed'; end if;
+  begin
+    perform public.begin_upload(owner,file_id,null,'Delete me','application/pdf',1);
+    raise exception 'deleted upload resumed';
+  exception when raise_exception then if sqlerrm <> 'upload_deleted' then raise; end if; end;
+  begin
+    perform public.transition_upload(owner,file_id,'complete');
+    raise exception 'deleted upload completed';
+  exception when raise_exception then if sqlerrm <> 'upload_deleted' then raise; end if; end;
+  if exists(select 1 from public.cleanup_candidates() where id=file_id) then raise exception 'cleanup before expiry'; end if;
+  update public.files set cleanup_after=now()-interval '1 minute' where id=file_id;
+  if not exists(select 1 from public.cleanup_candidates() where id=file_id) then raise exception 'deleted file not claimed'; end if;
+  if exists(select 1 from public.cleanup_candidates() where id=file_id) then raise exception 'cleanup lease ignored'; end if;
+  perform public.mark_cleaned(owner,file_id);
+  if not exists(select 1 from public.files where id=file_id and status='deleted' and cleaned_at is not null) then
+    raise exception 'deleted file not marked cleaned'; end if;
+  if has_function_privilege('authenticated','public.delete_file(uuid,uuid)','execute') or
+     has_function_privilege('anon','public.delete_file(uuid,uuid)','execute') then raise exception 'client deletion RPC permitted'; end if;
 end $$;
 rollback;

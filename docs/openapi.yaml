@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Filey API
-  version: 1.1.0
+  version: 1.2.0
   description: Shared demo workspace. Requests use a shared X-Filey-API-Key; no client Auth session is needed. File bytes use signed Storage URLs.
 servers:
   - url: http://127.0.0.1:56321/functions/v1/api/v1
@@ -91,17 +91,25 @@ paths:
       operationId: getFile
       responses:
         '200':
-          description: Ready file metadata; pending files return 404.
+          description: Ready file metadata; pending and deleted files return 404.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/File'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteFile
+      description: Marks a ready file deleted immediately. Storage cleanup is asynchronous and waits for outstanding upload URLs to expire plus a 15-minute grace period. Keeps a deletion record; the UUID cannot be reused. Previously downloaded copies are unaffected. Existing signed download URLs may work until expiry or storage cleanup. Folder deletion is not supported.
+      responses:
+        '204': {description: Deleted, or already deleted; no response body}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
         default: {$ref: '#/components/responses/Error'}
   /uploads/{fileID}:
     parameters:
       - {$ref: '#/components/parameters/FileID'}
     put:
       operationId: beginUpload
-      description: Reuse the same UUID and metadata for retries. If bytes already exist, the server verifies and finalizes them, returning a ready file or a validation error. Cancelled or expired IDs cannot be reused.
+      description: Reuse the same UUID and metadata for retries. If bytes already exist, the server verifies and finalizes them, returning a ready file or a validation error. Cancelled, expired, or deleted IDs cannot be reused.
       requestBody:
         required: true
         content:
@@ -130,7 +138,7 @@ paths:
         default: {$ref: '#/components/responses/Error'}
     delete:
       operationId: cancelUpload
-      description: Cancels pending uploads. Repeated cancellation succeeds. Ready files return 409. Existing upload URLs may remain valid until expiry.
+      description: Cancels pending uploads. Repeated cancellation succeeds. Ready and deleted files return 409. Existing upload URLs may remain valid until expiry.
       responses:
         '204': {description: Cancelled; cleanup is asynchronous}
         default: {$ref: '#/components/responses/Error'}
@@ -200,7 +208,7 @@ components:
                 properties:
                   code:
                     type: string
-                    enum: [invalid_request, invalid_name, invalid_cursor, unauthenticated, not_found, idempotency_conflict, upload_conflict, upload_incomplete, already_completed, upload_cancelled, upload_expired, file_too_large, request_too_large, unsupported_type, upload_validation_failed, rate_limited, internal_error, temporarily_unavailable]
+                    enum: [invalid_request, invalid_name, invalid_cursor, unauthenticated, not_found, idempotency_conflict, upload_conflict, upload_incomplete, already_completed, upload_cancelled, upload_expired, upload_deleted, file_not_ready, file_too_large, request_too_large, unsupported_type, upload_validation_failed, rate_limited, internal_error, temporarily_unavailable]
                   message: {type: string}
                   retryable: {type: boolean}
   schemas:
@@ -248,7 +256,7 @@ components:
       required: [file_id, status, parent_id, name, content_type, byte_count]
       properties:
         file_id: {type: string, format: uuid}
-        status: {type: string, enum: [pending, ready, cancelled, expired]}
+        status: {type: string, enum: [pending, ready, cancelled, expired, deleted]}
         parent_id: {type: [string, 'null'], format: uuid}
         name: {type: string}
         content_type: {$ref: '#/components/schemas/MimeType'}
