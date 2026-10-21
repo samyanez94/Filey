@@ -185,6 +185,30 @@ struct FileyClientTests {
 		)
 	}
 
+	@Test func getDownloadTargetPostsWithKeyAndDecodesResponse() async throws {
+		let fileID = UUID()
+		try await withClient(
+			handler: { request in
+				#expect(request.url?.path == "/functions/v1/api/v1/files/\(fileID.uuidString)/download-url")
+				#expect(request.httpMethod == "POST")
+				#expect(request.httpBody == nil)
+				#expect(request.value(forHTTPHeaderField: "X-Filey-API-Key") == "test-key")
+				return try Self.response(
+					request,
+					body: """
+						{"url":"https://storage.example.test/file?token=signed","content_type":"application/pdf","byte_count":128,"expires_at":"2026-10-20T20:00:00Z"}
+						"""
+				)
+			},
+			test: { client in
+				let target = try await client.getDownloadTarget(fileID: fileID)
+				#expect(target.url.absoluteString == "https://storage.example.test/file?token=signed")
+				#expect(target.contentType == "application/pdf")
+				#expect(target.byteCount == 128)
+			}
+		)
+	}
+
 	private func withClient(
 		handler: @escaping MockURLProtocol.Handler,
 		test: (FileyClient) async throws -> Void

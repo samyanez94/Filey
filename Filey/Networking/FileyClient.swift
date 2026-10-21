@@ -13,6 +13,9 @@ protocol FileyServicing: Sendable {
 
 	/// Loads a folder’s first page. Pass nil for the shared root folder.
 	func getItems(parentID: UUID?) async throws -> ItemsPage
+
+	/// Gets a temporary URL for downloading a file.
+	func getDownloadTarget(fileID: UUID) async throws -> DownloadTarget
 }
 
 /// Talks to the Filey API using our shared key.
@@ -48,6 +51,15 @@ final class FileyClient: FileyServicing {
 			path: "items",
 			queryItems: queryItems
 		)
+		return try await send(request)
+	}
+
+	/// Gets a temporary URL for downloading a file.
+	func getDownloadTarget(fileID: UUID) async throws -> DownloadTarget {
+		var request = try makeRequest(
+			path: "files/\(fileID.uuidString)/download-url"
+		)
+		request.httpMethod = "POST"
 		return try await send(request)
 	}
 
