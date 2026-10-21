@@ -10,6 +10,7 @@ import SwiftUI
 struct FileItemRow: View {
 	let item: FileItem
 	var isDownloading = false
+	var isDeleting = false
 
 	var body: some View {
 		HStack(spacing: 12) {
@@ -36,9 +37,9 @@ struct FileItemRow: View {
 				}
 			}
 			Spacer()
-			if isDownloading {
+			if isDownloading || isDeleting {
 				ProgressView()
-					.accessibilityLabel("Downloading file")
+					.accessibilityLabel(isDeleting ? "Deleting file" : "Downloading file")
 			}
 		}
 		.accessibilityElement(children: .combine)

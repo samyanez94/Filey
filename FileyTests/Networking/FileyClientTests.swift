@@ -224,6 +224,36 @@ struct FileyClientTests {
 		)
 	}
 
+	@Test func deleteFileSendsKeyAndAcceptsEmptyResponse() async throws {
+		let id = UUID()
+		try await withClient(
+			handler: { request in
+				#expect(request.url?.path == "/functions/v1/api/v1/files/\(id.uuidString)")
+				#expect(request.httpMethod == "DELETE")
+				#expect(request.httpBody == nil)
+				#expect(request.value(forHTTPHeaderField: "X-Filey-API-Key") == "test-key")
+				return try Self.response(request, status: 204)
+			},
+			test: { client in
+				try await client.deleteFile(id: id)
+			}
+		)
+	}
+
+	@Test func deleteFileReportsServerFailure() async throws {
+		try await withClient(
+			handler: { try Self.response($0, status: 503) },
+			test: { client in
+				await #expect {
+					try await client.deleteFile(id: UUID())
+				} throws: { error in
+					guard case APIError.server(503, "request-123") = error else { return false }
+					return true
+				}
+			}
+		)
+	}
+
 	private func withClient(
 		handler: @escaping MockURLProtocol.Handler,
 		test: (FileyClient) async throws -> Void

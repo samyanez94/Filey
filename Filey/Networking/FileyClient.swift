@@ -17,6 +17,9 @@ protocol FileyServicing: Sendable {
 	/// Gets a temporary URL for downloading a file.
 	func getDownloadTarget(fileID: UUID) async throws -> DownloadTarget
 
+	/// Deletes a file. Repeating a completed deletion is safe.
+	func deleteFile(id: UUID) async throws
+
 	/// Uploads or resumes a staged file using its existing ID.
 	func uploadFile(_ upload: PendingUpload) async throws -> FileItem
 }
@@ -67,6 +70,13 @@ final class FileyClient: FileyServicing {
 		)
 		request.httpMethod = "POST"
 		return try await send(request)
+	}
+
+	/// Deletes the file without trying to decode the empty response.
+	func deleteFile(id: UUID) async throws {
+		var request = try makeRequest(path: "files/\(id.uuidString)")
+		request.httpMethod = "DELETE"
+		_ = try await sendData(request)
 	}
 
 	/// Uploads a staged file and publishes it in its folder.

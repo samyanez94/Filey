@@ -10,6 +10,8 @@ import SwiftUI
 struct FolderContentsView: View {
 	let page: ItemsPage
 	let downloadingFileID: UUID?
+	let deletingFileID: UUID?
+	let onDeleteFile: (FileItem) -> Void
 	let loadMoreError: String?
 	let onLoadMore: () async -> Void
 	let onSelectFile: (FileItem) -> Void
@@ -63,11 +65,20 @@ struct FolderContentsView: View {
 			} label: {
 				FileItemRow(
 					item: item,
-					isDownloading: downloadingFileID == item.id
+					isDownloading: downloadingFileID == item.id,
+					isDeleting: deletingFileID == item.id
 				)
 				.contentShape(Rectangle())
 			}
 			.buttonStyle(.plain)
+			.disabled(deletingFileID == item.id)
+			.swipeActions(allowsFullSwipe: false) {
+				Button("Delete", systemImage: "trash") {
+					onDeleteFile(item)
+				}
+				.tint(.red)
+				.disabled(deletingFileID != nil)
+			}
 		}
 	}
 }

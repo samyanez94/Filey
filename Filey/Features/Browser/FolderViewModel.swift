@@ -60,6 +60,19 @@ final class FolderViewModel {
 
 	var showsUploadError = false
 
+	var fileToDelete: FileItem?
+
+	var showsDeleteConfirmation = false
+
+	private(set) var deletingFileID: UUID?
+
+	private(set) var deleteErrorMessage = ""
+
+	var showsDeleteError = false
+
+	// Keep older listing responses from bringing deleted files back.
+	private var deletedFileIDs: Set<UUID> = []
+
 	private let service: any FileyServicing
 
 	init(
@@ -113,7 +126,10 @@ final class FolderViewModel {
 				ids.insert($0.id).inserted
 			}
 			state = .loaded(
-				ItemsPage(items: current.items + newItems, nextCursor: page.nextCursor)
+				ItemsPage(
+					items: (current.items + newItems).filter { !deletedFileIDs.contains($0.id) },
+					nextCursor: page.nextCursor
+				)
 			)
 		} catch {
 			guard latestPageRequestID == requestID else {
@@ -149,7 +165,12 @@ final class FolderViewModel {
 				return
 			}
 
-			state = .loaded(page)
+			state = .loaded(
+				ItemsPage(
+					items: page.items.filter { !deletedFileIDs.contains($0.id) },
+					nextCursor: page.nextCursor
+				)
+			)
 		} catch {
 			guard latestRequestID == requestID else {
 				return
@@ -168,6 +189,11 @@ final class FolderViewModel {
 
 	/// Prepares a local file and leaves presentation to the view.
 	func preparePreview(for file: FileItem) async {
+		guard deletingFileID != file.id,
+			!deletedFileIDs.contains(file.id)
+		else {
+			return
+		}
 		let requestID = UUID()
 		latestPreviewRequestID = requestID
 		showsPreviewError = false
@@ -202,6 +228,49 @@ final class FolderViewModel {
 			}
 			previewErrorMessage = error.localizedDescription
 			showsPreviewError = true
+		}
+	}
+
+	// MARK: - File deletion
+
+	/// Leaves the row in place until the server confirms deletion.
+	func deleteFile(_ file: FileItem) async {
+		guard file.kind == .file,
+			deletingFileID == nil,
+			!deletedFileIDs.contains(file.id)
+		else {
+			return
+		}
+		deletingFileID = file.id
+		showsDeleteError = false
+		if selectedFile?.id == file.id {
+			selectedFile = nil
+			latestPreviewRequestID = nil
+		}
+		defer {
+			deletingFileID = nil
+		}
+		do {
+			try Task.checkCancellation()
+			try await service.deleteFile(id: file.id)
+			deletedFileIDs.insert(file.id)
+			if case .loaded(let page) = state {
+				state = .loaded(
+					ItemsPage(
+						items: page.items.filter { $0.id != file.id },
+						nextCursor: page.nextCursor
+					)
+				)
+			}
+		} catch {
+			guard !Task.isCancelled,
+				!(error is CancellationError),
+				(error as? URLError)?.code != .cancelled
+			else {
+				return
+			}
+			deleteErrorMessage = error.localizedDescription
+			showsDeleteError = true
 		}
 	}
 

@@ -192,6 +192,131 @@ struct FolderViewModelTests {
 		#expect(service.requestCount == 1)
 	}
 
+	@Test func deletionKeepsRowUntilSuccessAndIgnoresDuplicateRequests() async {
+		let file = FileItem(id: UUID(), kind: .file, name: "Notes.pdf", byteCount: 3)
+		let service = MockService { _ in ItemsPage(items: [file], nextCursor: "next") }
+		let model = FolderViewModel(folder: .root, service: service)
+		await model.load()
+		var calls = 0
+		service.deleteHandler = { id in
+			calls += 1
+			#expect(id == file.id)
+			#expect(model.deletingFileID == file.id)
+			guard case .loaded(let page) = model.state else {
+				Issue.record("The list should remain visible while deleting")
+				return
+			}
+			#expect(page.items.map(\.id) == [file.id])
+			await model.deleteFile(file)
+		}
+
+		await model.deleteFile(file)
+
+		#expect(calls == 1)
+		#expect(model.deletingFileID == nil)
+		#expect(!model.showsDeleteError)
+		guard case .loaded(let page) = model.state else {
+			Issue.record("Expected loaded folder after deleting")
+			return
+		}
+		#expect(page.items.isEmpty)
+		#expect(page.nextCursor == "next")
+	}
+
+	@Test func failedDeletionKeepsRowAndCanRetry() async {
+		let file = FileItem(id: UUID(), kind: .file, name: "Notes.pdf", byteCount: 3)
+		let service = MockService { _ in ItemsPage(items: [file], nextCursor: nil) }
+		let model = FolderViewModel(folder: .root, service: service)
+		await model.load()
+		service.deleteHandler = { _ in throw URLError(.notConnectedToInternet) }
+
+		await model.deleteFile(file)
+
+		#expect(model.deletingFileID == nil)
+		#expect(model.showsDeleteError)
+		#expect(model.deleteErrorMessage == URLError(.notConnectedToInternet).localizedDescription)
+		guard case .loaded(let page) = model.state else {
+			Issue.record("Failed deletion should keep the folder loaded")
+			return
+		}
+		#expect(page.items.map(\.id) == [file.id])
+		service.deleteHandler = { _ in }
+		await model.deleteFile(file)
+		#expect(!model.showsDeleteError)
+		guard case .loaded(let updated) = model.state else {
+			Issue.record("Expected the folder to stay loaded after retrying deletion")
+			return
+		}
+		#expect(updated.items.isEmpty)
+	}
+
+	@Test func olderPageAndRefreshCannotRestoreDeletedFile() async {
+		let file = FileItem(id: UUID(), kind: .file, name: "Notes.pdf", byteCount: 3)
+		let other = FileItem(id: UUID(), kind: .file, name: "Other.pdf", byteCount: 3)
+		let service = MockService { _ in ItemsPage(items: [file], nextCursor: "next") }
+		let model = FolderViewModel(folder: .root, service: service)
+		service.deleteHandler = { _ in }
+		await model.load()
+		service.pageHandler = { _ in
+			await model.deleteFile(file)
+			return ItemsPage(items: [file, other], nextCursor: nil)
+		}
+		await model.loadMore()
+		guard case .loaded(let page) = model.state else {
+			Issue.record("Expected a loaded page")
+			return
+		}
+		#expect(page.items.map(\.id) == [other.id])
+		await model.load()
+		guard case .loaded(let refreshed) = model.state else {
+			Issue.record("Expected a refreshed folder")
+			return
+		}
+		#expect(refreshed.items.isEmpty)
+	}
+
+	@Test func deletingFileDiscardsAnInFlightPreview() async throws {
+		let file = FileItem(id: UUID(), kind: .file, name: "Notes.pdf", byteCount: 3)
+		let localURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+		try Data("PDF".utf8).write(to: localURL)
+		defer { try? FileManager.default.removeItem(at: localURL) }
+		let service = MockService { _ in ItemsPage(items: [file], nextCursor: nil) }
+		service.deleteHandler = { _ in }
+		let model = FolderViewModel(
+			folder: .root,
+			service: service,
+			previewDownloader: MockPreviewDownloader { _ in localURL }
+		)
+		service.downloadHandler = { _ in
+			await model.deleteFile(file)
+			return DownloadTarget(url: localURL, contentType: "application/pdf", byteCount: 3)
+		}
+		model.selectedFile = file
+
+		await model.preparePreview(for: file)
+
+		#expect(model.selectedFile == nil)
+		#expect(model.previewURL == nil)
+		#expect(!model.showsPreviewError)
+		#expect(!FileManager.default.fileExists(atPath: localURL.path))
+	}
+
+	@Test func cancelledDeletionKeepsRowWithoutAnAlert() async {
+		let file = FileItem(id: UUID(), kind: .file, name: "Notes.pdf", byteCount: 3)
+		let service = MockService { _ in ItemsPage(items: [file], nextCursor: nil) }
+		service.deleteHandler = { _ in throw URLError(.cancelled) }
+		let model = FolderViewModel(folder: .root, service: service)
+		await model.load()
+		await model.deleteFile(file)
+		#expect(model.deletingFileID == nil)
+		#expect(!model.showsDeleteError)
+		guard case .loaded(let page) = model.state else {
+			Issue.record("Cancelled deletion should keep the folder loaded")
+			return
+		}
+		#expect(page.items.map(\.id) == [file.id])
+	}
+
 	@Test func paginationAppendsUniqueFilesAndStopsAtLastPage() async {
 		let first = FileItem(id: UUID(), kind: .file, name: "First.pdf", byteCount: 1)
 		let second = FileItem(id: UUID(), kind: .file, name: "Second.pdf", byteCount: 1)
@@ -346,6 +471,14 @@ private final class MockService: FileyServicing {
 
 	func getDownloadTarget(fileID: UUID) async throws -> DownloadTarget {
 		try await downloadHandler(fileID)
+	}
+
+	var deleteHandler: @MainActor (UUID) async throws -> Void = { _ in
+		throw URLError(.unsupportedURL)
+	}
+
+	func deleteFile(id: UUID) async throws {
+		try await deleteHandler(id)
 	}
 
 	var uploadHandler: @MainActor (PendingUpload) async throws -> FileItem = { _ in

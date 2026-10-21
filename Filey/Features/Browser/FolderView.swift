@@ -111,6 +111,28 @@ struct FolderView: View {
 			}
 			.quickLookPreview($viewModel.previewURL)
 			.alert(
+				"Delete File?",
+				isPresented: $viewModel.showsDeleteConfirmation,
+				presenting: viewModel.fileToDelete
+			) { file in
+				Button("Delete", role: .destructive) {
+					viewModel.fileToDelete = nil
+					Task {
+						await viewModel.deleteFile(file)
+					}
+				}
+				Button("Cancel", role: .cancel) {
+					viewModel.fileToDelete = nil
+				}
+			} message: { file in
+				Text("Delete “\(file.name)”? This can't be undone.")
+			}
+			.alert("Couldn't Delete File", isPresented: $viewModel.showsDeleteError) {
+				Button("OK", role: .cancel) {}
+			} message: {
+				Text(viewModel.deleteErrorMessage)
+			}
+			.alert(
 				"Couldn't Preview File",
 				isPresented: $viewModel.showsPreviewError
 			) {
@@ -144,6 +166,11 @@ struct FolderView: View {
 				FolderContentsView(
 					page: page,
 					downloadingFileID: viewModel.selectedFile?.id,
+					deletingFileID: viewModel.deletingFileID,
+					onDeleteFile: { file in
+						viewModel.fileToDelete = file
+						viewModel.showsDeleteConfirmation = true
+					},
 					loadMoreError: viewModel.loadMoreError,
 					onLoadMore: {
 						await viewModel.loadMore()
