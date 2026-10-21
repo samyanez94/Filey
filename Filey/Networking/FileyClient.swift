@@ -16,6 +16,9 @@ protocol FileyServicing: Sendable {
 
 	/// Gets a temporary URL for downloading a file.
 	func getDownloadTarget(fileID: UUID) async throws -> DownloadTarget
+
+	/// Uploads or resumes a staged PDF using its existing ID.
+	func uploadPDF(_ upload: PendingUpload) async throws -> FileItem
 }
 
 /// Talks to the Filey API using our shared key.
@@ -61,6 +64,78 @@ final class FileyClient: FileyServicing {
 		)
 		request.httpMethod = "POST"
 		return try await send(request)
+	}
+
+	/// Uploads a staged PDF and publishes it in its folder.
+	///
+	/// Starts or resumes the upload, sends raw bytes to Storage, then confirms completion.
+	/// Reusing the same ID lets a retry recover a file that already finished uploading.
+	/// The caller keeps the local file for retries and removes it after success.
+	func uploadPDF(_ upload: PendingUpload) async throws -> FileItem {
+		var beginRequest = try makeRequest(
+			path: "uploads/\(upload.id.uuidString)"
+		)
+		beginRequest.httpMethod = "PUT"
+		beginRequest.setValue(
+			"application/json",
+			forHTTPHeaderField: "Content-Type"
+		)
+		beginRequest.httpBody = try JSONEncoder().encode(upload)
+
+		let response: UploadResponse = try await send(beginRequest)
+
+		// A retry may find that the previous attempt already completed.
+		if response.status == .ready {
+			guard let file = response.file else {
+				throw APIError.invalidData
+			}
+			return file
+		}
+
+		guard response.status == .pending,
+			let target = response.uploadTarget,
+			target.method == "PUT",
+			target.bodyEncoding == "raw"
+		else {
+			throw APIError.invalidData
+		}
+
+		try Task.checkCancellation()
+
+		// This is a Storage request, not a Filey API request.
+		var storageRequest = URLRequest(url: target.url)
+		storageRequest.httpMethod = target.method
+
+		for (name, value) in target.headers {
+			storageRequest.setValue(value, forHTTPHeaderField: name)
+		}
+
+		let (_, storageResponse) = try await session.upload(
+			for: storageRequest,
+			fromFile: upload.localURL
+		)
+
+		try Task.checkCancellation()
+
+		guard let storageResponse = storageResponse as? HTTPURLResponse else {
+			throw APIError.invalidResponse
+		}
+
+		guard (200..<300).contains(storageResponse.statusCode) else {
+			throw APIError.server(
+				statusCode: storageResponse.statusCode,
+				requestID: storageResponse.value(
+					forHTTPHeaderField: "X-Request-ID"
+				)
+			)
+		}
+
+		var completeRequest = try makeRequest(
+			path: "uploads/\(upload.id.uuidString)/complete"
+		)
+		completeRequest.httpMethod = "POST"
+
+		return try await send(completeRequest)
 	}
 
 	/// Adds the route to our base URL and includes the shared key.

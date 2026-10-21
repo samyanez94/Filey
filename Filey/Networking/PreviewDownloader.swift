@@ -8,20 +8,28 @@
 import Foundation
 import UniformTypeIdentifiers
 
+/// Lets the browser download previews without depending on URLSession.
 @MainActor
 protocol PreviewDownloading {
+	/// Returns a local file that the caller removes after previewing.
 	func download(_ target: DownloadTarget) async throws -> URL
 }
 
+/// Downloads signed Storage URLs into temporary files for Quick Look.
 @MainActor
 final class PreviewDownloader: PreviewDownloading {
 	private let session: URLSession
 
+	/// Uses the shared session by default; tests can supply their own.
 	init(session: URLSession = .shared) {
 		self.session = session
 	}
 
 	/// Downloads a file and keeps a temporary copy for Quick Look.
+	///
+	/// Checks the HTTP response and byte count, then adds an extension from the MIME type.
+	/// The caller removes the returned file when the preview ends.
+	/// Network, file-system, and cancellation errors pass through unchanged.
 	func download(_ target: DownloadTarget) async throws -> URL {
 		try Task.checkCancellation()
 

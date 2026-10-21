@@ -7,10 +7,13 @@
 
 import QuickLook
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct FolderView: View {
 
 	@State private var viewModel: FolderViewModel
+
+	@State private var showsFileImporter = false
 
 	init(
 		folder: FolderLocation,
@@ -35,6 +38,22 @@ struct FolderView: View {
 						Task { await viewModel.load() }
 					}
 				}
+				ToolbarItem(placement: .topBarTrailing) {
+					if viewModel.isUploading {
+						ProgressView()
+							.accessibilityLabel("Uploading PDF")
+					} else if viewModel.pendingUpload != nil {
+						Button("Retry Upload", systemImage: "arrow.clockwise") {
+							Task {
+								await viewModel.uploadPendingFile()
+							}
+						}
+					} else {
+						Button("Import PDF", systemImage: "plus") {
+							showsFileImporter = true
+						}
+					}
+				}
 			}
 			.task {
 				await viewModel.loadIfNeeded()
@@ -45,6 +64,23 @@ struct FolderView: View {
 				}
 				await viewModel.preparePreview(for: selectedFile)
 			}
+			.fileImporter(
+				isPresented: $showsFileImporter,
+				allowedContentTypes: [.pdf],
+				allowsMultipleSelection: false
+			) { result in
+				switch result {
+				case .success(let urls):
+					guard let source = urls.first else {
+						return
+					}
+					Task {
+						await viewModel.importPDF(from: source)
+					}
+				case .failure(let error):
+					viewModel.handleUploadError(error)
+				}
+			}
 			.quickLookPreview($viewModel.previewURL)
 			.alert(
 				"Couldn't Preview File",
@@ -53,6 +89,14 @@ struct FolderView: View {
 				Button("OK", role: .cancel) {}
 			} message: {
 				Text(viewModel.previewErrorMessage)
+			}
+			.alert(
+				"Couldn't Upload PDF",
+				isPresented: $viewModel.showsUploadError
+			) {
+				Button("OK", role: .cancel) {}
+			} message: {
+				Text(viewModel.uploadErrorMessage)
 			}
 	}
 

@@ -128,6 +128,50 @@ struct FolderViewModelTests {
 		#expect(!model.showsPreviewError)
 	}
 
+	@Test func failedUploadRetainsFileAndRetryCleansUp() async throws {
+		let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+		defer { try? FileManager.default.removeItem(at: directory) }
+		let source = directory.appendingPathComponent("Notes.pdf")
+		let bytes = Data("%PDF-1.4 sample".utf8)
+		try bytes.write(to: source)
+		let parentID = UUID()
+		let service = MockService { id in
+			#expect(id == parentID)
+			return ItemsPage(items: [], nextCursor: nil)
+		}
+		service.uploadHandler = { _ in throw URLError(.notConnectedToInternet) }
+		let model = FolderViewModel(
+			folder: FolderLocation(id: parentID, name: "Documents"),
+			service: service
+		)
+
+		await model.importPDF(from: source)
+
+		let pending = try #require(model.pendingUpload)
+		defer { try? FileManager.default.removeItem(at: pending.localURL) }
+		#expect(pending.parentID == parentID)
+		#expect(pending.name == "Notes.pdf")
+		#expect(try Data(contentsOf: pending.localURL) == bytes)
+		#expect(model.showsUploadError)
+		#expect(!model.isUploading)
+		#expect(service.requestCount == 0)
+
+		service.uploadHandler = { upload in
+			#expect(upload.id == pending.id)
+			#expect(upload.localURL == pending.localURL)
+			return FileItem(id: upload.id, kind: .file, name: upload.name, byteCount: upload.byteCount)
+		}
+		await model.uploadPendingFile()
+
+		#expect(model.pendingUpload == nil)
+		#expect(!model.isUploading)
+		#expect(!model.showsUploadError)
+		#expect(!FileManager.default.fileExists(atPath: pending.localURL.path))
+		#expect(FileManager.default.fileExists(atPath: source.path))
+		#expect(service.requestCount == 1)
+	}
+
 	@Test func failedLoadCanBeRetried() async {
 		let service = MockService { _ in throw APIError.unauthorized }
 		let model = FolderViewModel(folder: .root, service: service)
@@ -187,10 +231,13 @@ struct FolderViewModelTests {
 
 @MainActor
 private final class MockService: FileyServicing {
+
 	private(set) var requestCount = 0
+
 	var downloadHandler: @MainActor (UUID) async throws -> DownloadTarget = { _ in
 		throw URLError(.unsupportedURL)
 	}
+
 	var handler: @MainActor (UUID?) async throws -> ItemsPage
 
 	init(handler: @escaping @MainActor (UUID?) async throws -> ItemsPage) {
@@ -204,6 +251,14 @@ private final class MockService: FileyServicing {
 
 	func getDownloadTarget(fileID: UUID) async throws -> DownloadTarget {
 		try await downloadHandler(fileID)
+	}
+
+	var uploadHandler: @MainActor (PendingUpload) async throws -> FileItem = { _ in
+		throw URLError(.unsupportedURL)
+	}
+
+	func uploadPDF(_ upload: PendingUpload) async throws -> FileItem {
+		try await uploadHandler(upload)
 	}
 }
 

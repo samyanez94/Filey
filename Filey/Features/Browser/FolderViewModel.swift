@@ -32,6 +32,7 @@ final class FolderViewModel {
 			}
 		}
 	}
+
 	private(set) var previewErrorMessage = ""
 
 	var showsPreviewError = false
@@ -39,6 +40,14 @@ final class FolderViewModel {
 	private let previewDownloader: any PreviewDownloading
 
 	private var latestPreviewRequestID: UUID?
+
+	private(set) var isUploading = false
+
+	private(set) var pendingUpload: PendingUpload?
+
+	private(set) var uploadErrorMessage = ""
+
+	var showsUploadError = false
 
 	private let service: any FileyServicing
 
@@ -92,6 +101,68 @@ final class FolderViewModel {
 			previewErrorMessage = error.localizedDescription
 			showsPreviewError = true
 		}
+	}
+
+	func importPDF(from source: URL) async {
+		guard !isUploading,
+			pendingUpload == nil
+		else {
+			return
+		}
+
+		isUploading = true
+		showsUploadError = false
+
+		do {
+			pendingUpload = try await PDFImporter.stage(
+				source: source,
+				parentID: folder.id
+			)
+		} catch {
+			isUploading = false
+			handleUploadError(error)
+			return
+		}
+
+		isUploading = false
+		await uploadPendingFile()
+	}
+
+	func uploadPendingFile() async {
+		guard !isUploading,
+			let upload = pendingUpload
+		else {
+			return
+		}
+
+		isUploading = true
+		showsUploadError = false
+		defer {
+			isUploading = false
+		}
+
+		do {
+			_ = try await service.uploadPDF(upload)
+
+			try? FileManager.default.removeItem(at: upload.localURL)
+			pendingUpload = nil
+
+			await load()
+		} catch {
+			// Keep the UUID and staged file so Retry resumes this upload.
+			handleUploadError(error)
+		}
+	}
+
+	func handleUploadError(_ error: any Error) {
+		guard !Task.isCancelled,
+			!(error is CancellationError),
+			(error as? URLError)?.code != .cancelled
+		else {
+			return
+		}
+		uploadErrorMessage = error.localizedDescription
+		showsUploadError = true
 	}
 
 	/// Loads the folder if we haven't started yet.
