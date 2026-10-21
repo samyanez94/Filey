@@ -44,7 +44,10 @@ struct FolderView: View {
 					}
 				}
 				ToolbarItem(placement: .topBarTrailing) {
-					if viewModel.isUploading {
+					if viewModel.isCreatingFolder {
+						ProgressView()
+							.accessibilityLabel("Creating folder")
+					} else if viewModel.isUploading {
 						ProgressView()
 							.accessibilityLabel("Preparing or uploading file")
 					} else if viewModel.pendingUpload != nil {
@@ -55,6 +58,10 @@ struct FolderView: View {
 						}
 					} else {
 						Menu {
+							Button("New Folder", systemImage: "folder.badge.plus") {
+								viewModel.showsNewFolder = true
+							}
+
 							Button("Import PDF", systemImage: "doc") {
 								showsFileImporter = true
 							}
@@ -110,6 +117,27 @@ struct FolderView: View {
 				}
 			}
 			.quickLookPreview($viewModel.previewURL)
+			.alert(
+				"New Folder",
+				isPresented: $viewModel.showsNewFolder
+			) {
+				TextField("Folder name", text: $viewModel.newFolderName)
+				Button("Create") {
+					Task {
+						await viewModel.createFolder()
+					}
+				}
+				.disabled(!viewModel.canCreateFolder)
+				Button("Cancel", role: .cancel) {}
+			}
+			.alert("Couldn't Create Folder", isPresented: $viewModel.showsCreateFolderError) {
+				Button("Retry") {
+					Task { await viewModel.createFolder() }
+				}
+				Button("OK", role: .cancel) {}
+			} message: {
+				Text(viewModel.createFolderErrorMessage)
+			}
 			.alert(
 				"Delete File?",
 				isPresented: $viewModel.showsDeleteConfirmation,

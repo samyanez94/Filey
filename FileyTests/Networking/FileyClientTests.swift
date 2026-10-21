@@ -254,6 +254,51 @@ struct FileyClientTests {
 		)
 	}
 
+	@Test(arguments: [nil, UUID()] as [UUID?])
+	func createFolderSendsParentAndRetryKey(parentID: UUID?) async throws {
+		let requestID = UUID()
+		let folderID = UUID()
+		try await withClient(
+			handler: { request in
+				#expect(request.httpMethod == "POST")
+				#expect(request.url?.path == "/functions/v1/api/v1/folders")
+				#expect(request.value(forHTTPHeaderField: "X-Filey-API-Key") == "test-key")
+				#expect(request.value(forHTTPHeaderField: "Idempotency-Key") == requestID.uuidString)
+				#expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+				// URLSession may expose the body as a stream to URLProtocol.
+				let data: Data
+				if let body = request.httpBody {
+					data = body
+				} else {
+					let stream = try #require(request.httpBodyStream)
+					stream.open()
+					defer { stream.close() }
+					var bytes = Data()
+					var buffer = [UInt8](repeating: 0, count: 1024)
+					while stream.hasBytesAvailable {
+						let count = stream.read(&buffer, maxLength: buffer.count)
+						guard count > 0 else { break }
+						bytes.append(contentsOf: buffer.prefix(count))
+					}
+					data = bytes
+				}
+				let body = try JSONDecoder().decode([String: String].self, from: data)
+				#expect(body["name"] == "Documents")
+				#expect(body["parent_id"] == parentID?.uuidString)
+				return try Self.response(
+					request,
+					status: 201,
+					body: "{\"id\":\"\(folderID.uuidString)\",\"kind\":\"folder\",\"name\":\"Documents\"}"
+				)
+			},
+			test: { client in
+				let folder = try await client.createFolder(name: "Documents", parentID: parentID, requestID: requestID)
+				#expect(folder.id == folderID)
+				#expect(folder.kind == .folder)
+			}
+		)
+	}
+
 	private func withClient(
 		handler: @escaping MockURLProtocol.Handler,
 		test: (FileyClient) async throws -> Void

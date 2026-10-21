@@ -17,6 +17,9 @@ protocol FileyServicing: Sendable {
 	/// Gets a temporary URL for downloading a file.
 	func getDownloadTarget(fileID: UUID) async throws -> DownloadTarget
 
+	/// Creates a folder. Reuse the request ID and name when retrying.
+	func createFolder(name: String, parentID: UUID?, requestID: UUID) async throws -> FileItem
+
 	/// Deletes a file. Repeating a completed deletion is safe.
 	func deleteFile(id: UUID) async throws
 
@@ -69,6 +72,24 @@ final class FileyClient: FileyServicing {
 			path: "files/\(fileID.uuidString)/download-url"
 		)
 		request.httpMethod = "POST"
+		return try await send(request)
+	}
+
+	/// Creates a folder under the given parent, or at the root when it's nil.
+	func createFolder(name: String, parentID: UUID?, requestID: UUID) async throws -> FileItem {
+		var request = try makeRequest(path: "folders")
+		request.httpMethod = "POST"
+		request.setValue(
+			requestID.uuidString,
+			forHTTPHeaderField: "Idempotency-Key"
+		)
+		request.setValue(
+			"application/json",
+			forHTTPHeaderField: "Content-Type"
+		)
+		var body: [String: String] = ["name": name]
+		body["parent_id"] = parentID?.uuidString
+		request.httpBody = try JSONEncoder().encode(body)
 		return try await send(request)
 	}
 

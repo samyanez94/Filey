@@ -192,6 +192,76 @@ struct FolderViewModelTests {
 		#expect(service.requestCount == 1)
 	}
 
+	@Test(arguments: [nil, UUID()] as [UUID?])
+	func creatingFolderTrimsNameAndRefreshes(parentID: UUID?) async {
+		let folder = FileItem(id: UUID(), kind: .folder, name: "Documents", byteCount: nil)
+		let service = MockService { _ in ItemsPage(items: [folder], nextCursor: nil) }
+		let model = FolderViewModel(folder: FolderLocation(id: parentID, name: "Files"), service: service)
+		model.newFolderName = "  Documents  "
+		var calls = 0
+		service.createFolderHandler = { name, parent, _ in
+			calls += 1
+			#expect(name == "Documents")
+			#expect(parent == parentID)
+			#expect(model.isCreatingFolder)
+			await model.createFolder()
+			return folder
+		}
+
+		await model.createFolder()
+
+		#expect(calls == 1)
+		#expect(!model.isCreatingFolder)
+		#expect(!model.showsCreateFolderError)
+		#expect(model.newFolderName.isEmpty)
+		#expect(service.requestCount == 1)
+		guard case .loaded(let page) = model.state else {
+			Issue.record("Expected refreshed folder contents")
+			return
+		}
+		#expect(page.items.map(\.id) == [folder.id])
+	}
+
+	@Test func folderCreationRetryReusesKeyAndChangedNameGetsANewKey() async throws {
+		let service = MockService { _ in ItemsPage(items: [], nextCursor: nil) }
+		let model = FolderViewModel(folder: .root, service: service)
+		await model.load()
+		var keys: [UUID] = []
+		service.createFolderHandler = { _, _, key in
+			keys.append(key)
+			throw URLError(.notConnectedToInternet)
+		}
+		model.newFolderName = "Documents"
+		await model.createFolder()
+		#expect(model.showsCreateFolderError)
+		#expect(!model.isCreatingFolder)
+		#expect(model.newFolderName == "Documents")
+		guard case .loaded = model.state else {
+			Issue.record("Creation failure should keep the folder visible")
+			return
+		}
+		await model.createFolder()
+		model.newFolderName = "Photos"
+		await model.createFolder()
+		try #require(keys.count == 3)
+		#expect(keys[0] == keys[1])
+		#expect(keys[1] != keys[2])
+	}
+
+	@Test func blankFolderNameDoesNotSendRequest() async {
+		let service = MockService { _ in ItemsPage(items: [], nextCursor: nil) }
+		service.createFolderHandler = { _, _, _ in
+			Issue.record("Blank names must not reach the server")
+			throw URLError(.badURL)
+		}
+		let model = FolderViewModel(folder: .root, service: service)
+		model.newFolderName = "  \n "
+		#expect(!model.canCreateFolder)
+		await model.createFolder()
+		#expect(!model.isCreatingFolder)
+		#expect(!model.showsCreateFolderError)
+	}
+
 	@Test func deletionKeepsRowUntilSuccessAndIgnoresDuplicateRequests() async {
 		let file = FileItem(id: UUID(), kind: .file, name: "Notes.pdf", byteCount: 3)
 		let service = MockService { _ in ItemsPage(items: [file], nextCursor: "next") }
@@ -471,6 +541,14 @@ private final class MockService: FileyServicing {
 
 	func getDownloadTarget(fileID: UUID) async throws -> DownloadTarget {
 		try await downloadHandler(fileID)
+	}
+
+	var createFolderHandler: @MainActor (String, UUID?, UUID) async throws -> FileItem = { _, _, _ in
+		throw URLError(.unsupportedURL)
+	}
+
+	func createFolder(name: String, parentID: UUID?, requestID: UUID) async throws -> FileItem {
+		try await createFolderHandler(name, parentID, requestID)
 	}
 
 	var deleteHandler: @MainActor (UUID) async throws -> Void = { _ in

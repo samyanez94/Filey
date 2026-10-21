@@ -73,6 +73,22 @@ final class FolderViewModel {
 	// Keep older listing responses from bringing deleted files back.
 	private var deletedFileIDs: Set<UUID> = []
 
+	var newFolderName = ""
+
+	var showsNewFolder = false
+
+	private(set) var isCreatingFolder = false
+
+	private(set) var createFolderErrorMessage = ""
+
+	var showsCreateFolderError = false
+
+	private var folderCreationRequest: (name: String, id: UUID)?
+
+	var canCreateFolder: Bool {
+		!isCreatingFolder && !newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+	}
+
 	private let service: any FileyServicing
 
 	init(
@@ -182,6 +198,50 @@ final class FolderViewModel {
 			}
 
 			state = .failed(error.localizedDescription)
+		}
+	}
+
+	// MARK: - Folder creation
+
+	/// Keeps the same request ID after a failure so a retry won't create duplicates.
+	func createFolder() async {
+		guard canCreateFolder else {
+			return
+		}
+		let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+		let requestID: UUID
+		if let previous = folderCreationRequest,
+			previous.name == name
+		{
+			requestID = previous.id
+		} else {
+			requestID = UUID()
+		}
+		folderCreationRequest = (name, requestID)
+		isCreatingFolder = true
+		showsCreateFolderError = false
+		defer {
+			isCreatingFolder = false
+		}
+		do {
+			try Task.checkCancellation()
+			_ = try await service.createFolder(
+				name: name,
+				parentID: folder.id,
+				requestID: requestID
+			)
+			folderCreationRequest = nil
+			newFolderName = ""
+			await load()
+		} catch {
+			guard !Task.isCancelled,
+				!(error is CancellationError),
+				(error as? URLError)?.code != .cancelled
+			else {
+				return
+			}
+			createFolderErrorMessage = error.localizedDescription
+			showsCreateFolderError = true
 		}
 	}
 
